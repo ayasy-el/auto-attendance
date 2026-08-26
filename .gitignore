@@ -1,0 +1,5 @@
+.env
+.tmp/
+
+__pycache__
+requests_dump
