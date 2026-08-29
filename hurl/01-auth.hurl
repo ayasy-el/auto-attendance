@@ -29,3 +29,6 @@ jsonpath "$.nomor" exists
 jsonpath "$.nipnrp" exists
 jsonpath "$.nama" exists
 jsonpath "$.hakAkses" exists
+
+[Captures]
+MAHASISWA: jsonpath "$.nomor"

@@ -8,7 +8,7 @@ Content-Type: application/json
   "jenis_schema": {{JENIS_SCHEMA}},
   "mahasiswa": {{MAHASISWA}},
   "key": "{{PRESENSI_KEY}}",
-  "kuliah_asal": null
+  "kuliah_asal": {{KULIAH_ASAL}}
 }
 
 HTTP 200

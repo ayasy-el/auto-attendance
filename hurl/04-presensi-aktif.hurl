@@ -5,3 +5,6 @@ HTTP 200
 
 [Asserts]
 jsonpath "$" exists
+
+[Captures]
+PRESENSI_KEY: jsonpath "$[?(@.open == 1)].key"
