@@ -1,5 +1,6 @@
 .env
+.tmp/
+config.yaml
 
 __pycache__
-dump.mitm
-ref
+dump/

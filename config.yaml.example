@@ -1,0 +1,17 @@
+host: "https://ethol.example.ac.id"
+cas_host: "https://cas.example.ac.id"
+username: "${USERNAME}"
+password: "${PASSWORD}"
+tahun: 2026
+semester: 1
+timezone: "Asia/Jakarta"
+schedule:
+  outside_class_interval: "15m"
+  inside_class_interval: "2m"
+  active_start: "08:00"
+  active_end: "18:00"
+  run_immediately: true
+  refresh_schedule_interval: "24h"
+http:
+  timeout: "30s"
+  user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"

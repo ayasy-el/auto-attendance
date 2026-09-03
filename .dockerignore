@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+.tmp
+config.yaml
+README.md
+mock-server.js
+hurl
+*.md

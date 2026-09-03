@@ -1,0 +1,13 @@
+services:
+  auto-attendance:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: auto-attendance
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    init: true
