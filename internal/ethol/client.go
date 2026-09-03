@@ -41,7 +41,7 @@ type ClassTime struct {
 	End    string `json:"jam_akhir"`
 }
 type Notification struct {
-	ID   int    `json:"idNotifikasi"`
+	ID   string `json:"idNotifikasi"`
 	Data string `json:"dataTerkait"`
 }
 type activePresence struct {
