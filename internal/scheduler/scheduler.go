@@ -172,7 +172,8 @@ func parseMinutes(value string) (int, error) {
 }
 func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().In(s.loc)
-	if !isWeekday(now) || (!s.inClass(now) && !s.inActiveWindow(now)) {
+	inClass := s.inClass(now)
+	if !isWeekday(now) || (!inClass && !s.inActiveWindow(now)) {
 		return
 	}
 	notifications, err := s.client.Notifications(ctx)
@@ -180,9 +181,24 @@ func (s *Scheduler) tick(ctx context.Context) {
 		log.Printf("ambil notifikasi gagal: %v", err)
 		return
 	}
+	classCourses := s.classCourses(now)
 	for _, n := range notifications {
-		parts := strings.Split(n.Data, "-")
-		if len(parts) != 2 {
+		if n.Status != "1" {
+			continue
+		}
+		if !inClass {
+			if err := s.client.CloseNotification(ctx, n.ID); err != nil {
+				log.Printf("tutup notifikasi %s gagal: %v", n.ID, err)
+				continue
+			}
+			log.Printf("notifikasi %s ditutup di luar jam kuliah", n.ID)
+			continue
+		}
+		parts := strings.SplitN(n.Data, "-", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			continue
+		}
+		if _, ok := classCourses[parts[0]]; !ok {
 			continue
 		}
 		key := n.Data + ":" + time.Now().In(s.loc).Format("2006-01-02")
@@ -197,9 +213,33 @@ func (s *Scheduler) tick(ctx context.Context) {
 			log.Printf("presensi %s gagal: %v", n.Data, err)
 			continue
 		}
+		if err := s.client.CloseNotification(ctx, n.ID); err != nil {
+			log.Printf("presensi %s sukses, tetapi tutup notifikasi %s gagal: %v", n.Data, n.ID, err)
+			continue
+		}
 		s.mu.Lock()
 		s.attended[key] = time.Now()
 		s.mu.Unlock()
 		log.Printf("presensi berhasil: kuliah=%s key=%s", n.Data, presenceKey)
 	}
+}
+
+func (s *Scheduler) classCourses(now time.Time) map[string]struct{} {
+	result := make(map[string]struct{})
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	current := now.Hour()*60 + now.Minute()
+	for _, item := range s.schedules {
+		if item.Day != weekday {
+			continue
+		}
+		start, startErr := parseMinutes(item.Start)
+		end, endErr := parseMinutes(item.End)
+		if startErr == nil && endErr == nil && current >= start && current <= end {
+			result[fmt.Sprintf("%d", item.Course)] = struct{}{}
+		}
+	}
+	return result
 }

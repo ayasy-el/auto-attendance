@@ -24,6 +24,7 @@ type Client struct {
 	http    *http.Client
 	tokenMu sync.RWMutex
 	token   string
+	loginMu sync.Mutex
 }
 type Student struct {
 	Number int    `json:"nomor"`
@@ -44,8 +45,9 @@ type ClassTime struct {
 	End    string `json:"jam_akhir"`
 }
 type Notification struct {
-	ID   string `json:"idNotifikasi"`
-	Data string `json:"dataTerkait"`
+	ID     string `json:"idNotifikasi"`
+	Status string `json:"status"`
+	Data   string `json:"dataTerkait"`
 }
 type activePresence struct {
 	Key  string `json:"key"`
@@ -62,6 +64,12 @@ func New(cfg config.Config) (*Client, error) {
 }
 
 func (c *Client) Login(ctx context.Context) (Student, error) {
+	c.loginMu.Lock()
+	defer c.loginMu.Unlock()
+	return c.login(ctx)
+}
+
+func (c *Client) login(ctx context.Context) (Student, error) {
 	service := strings.TrimRight(c.cfg.Host, "/") + "/api/auth/cas-callback"
 	resp, body, err := c.request(ctx, http.MethodGet, strings.TrimRight(c.cfg.CASHost, "/")+"/cas/login?service="+url.QueryEscape(service), nil, "")
 	if err != nil || resp.StatusCode != http.StatusOK {
@@ -95,7 +103,7 @@ func (c *Client) Login(ctx context.Context) (Student, error) {
 		return Student{}, errors.New("token CAS tidak ditemukan")
 	}
 	var student Student
-	if err := c.getJSON(ctx, "/api/auth/validasi-token", nil, &student); err != nil {
+	if err := c.getJSONNoRelogin(ctx, "/api/auth/validasi-token", nil, &student); err != nil {
 		return Student{}, fmt.Errorf("validasi token: %w", err)
 	}
 	return student, nil
@@ -151,6 +159,19 @@ func (c *Client) Notifications(ctx context.Context) ([]Notification, error) {
 	var v []Notification
 	err := c.getJSON(ctx, "/api/notifikasi/mahasiswa", url.Values{"filterNotif": {"PRESENSI"}}, &v)
 	return v, err
+}
+
+func (c *Client) CloseNotification(ctx context.Context, id string) error {
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := c.putJSON(ctx, "/api/notifikasi/mahasiswa-baca-notif", map[string]string{"idNotifikasi": id}, &result); err != nil {
+		return err
+	}
+	if !result.Success {
+		return errors.New("server gagal menutup notifikasi")
+	}
+	return nil
 }
 func (c *Client) Attend(ctx context.Context, n Notification, student Student) (string, error) {
 	parts := strings.Split(n.Data, "-")
@@ -223,6 +244,17 @@ func (c *Client) Attend(ctx context.Context, n Notification, student Student) (s
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {
+	err := c.getJSONNoRelogin(ctx, path, query, out)
+	if !errors.Is(err, errNotLoggedIn) {
+		return err
+	}
+	if _, loginErr := c.Login(ctx); loginErr != nil {
+		return fmt.Errorf("login ulang: %w", loginErr)
+	}
+	return c.getJSONNoRelogin(ctx, path, query, out)
+}
+
+func (c *Client) getJSONNoRelogin(ctx context.Context, path string, query url.Values, out any) error {
 	u := strings.TrimRight(c.cfg.Host, "/") + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
@@ -231,11 +263,41 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out
 	return decode(resp, body, err, out)
 }
 func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
+	err := c.postJSONNoRelogin(ctx, path, in, out)
+	if !errors.Is(err, errNotLoggedIn) {
+		return err
+	}
+	if _, loginErr := c.Login(ctx); loginErr != nil {
+		return fmt.Errorf("login ulang: %w", loginErr)
+	}
+	return c.postJSONNoRelogin(ctx, path, in, out)
+}
+
+func (c *Client) postJSONNoRelogin(ctx context.Context, path string, in, out any) error {
 	b, err := json.Marshal(in)
 	if err != nil {
 		return err
 	}
 	resp, body, err := c.request(ctx, http.MethodPost, strings.TrimRight(c.cfg.Host, "/")+path, strings.NewReader(string(b)), "application/json")
+	return decode(resp, body, err, out)
+}
+func (c *Client) putJSON(ctx context.Context, path string, in, out any) error {
+	err := c.putJSONNoRelogin(ctx, path, in, out)
+	if !errors.Is(err, errNotLoggedIn) {
+		return err
+	}
+	if _, loginErr := c.Login(ctx); loginErr != nil {
+		return fmt.Errorf("login ulang: %w", loginErr)
+	}
+	return c.putJSONNoRelogin(ctx, path, in, out)
+}
+
+func (c *Client) putJSONNoRelogin(ctx context.Context, path string, in, out any) error {
+	b, err := json.Marshal(in)
+	if err != nil {
+		return err
+	}
+	resp, body, err := c.request(ctx, http.MethodPut, strings.TrimRight(c.cfg.Host, "/")+path, strings.NewReader(string(b)), "application/json")
 	return decode(resp, body, err, out)
 }
 func (c *Client) request(ctx context.Context, method, target string, body io.Reader, contentType string) (*http.Response, []byte, error) {
@@ -261,9 +323,15 @@ func (c *Client) request(ctx context.Context, method, target string, body io.Rea
 	resp.Body.Close()
 	return resp, b, readErr
 }
+
+var errNotLoggedIn = errors.New("anda belum melakukan login")
+
 func decode(resp *http.Response, body []byte, requestErr error, out any) error {
 	if requestErr != nil {
 		return requestErr
+	}
+	if isNotLoggedIn(body) {
+		return errNotLoggedIn
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
@@ -272,6 +340,17 @@ func decode(resp *http.Response, body []byte, requestErr error, out any) error {
 		return nil
 	}
 	return json.Unmarshal(body, out)
+}
+
+func isNotLoggedIn(body []byte) bool {
+	var response struct {
+		Success *bool  `json:"sukses"`
+		Message string `json:"pesan"`
+	}
+	if json.Unmarshal(body, &response) != nil || response.Success == nil {
+		return false
+	}
+	return !*response.Success && strings.EqualFold(strings.TrimSpace(response.Message), "Anda belum melakukan Login")
 }
 func responseError(resp *http.Response, err error) error {
 	if err != nil {
