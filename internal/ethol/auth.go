@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"regexp"
 	"strings"
@@ -18,6 +19,17 @@ func (c *Client) Login(ctx context.Context) (Student, error) {
 }
 
 func (c *Client) login(ctx context.Context) (Student, error) {
+	// CAS dapat membutuhkan cookie untuk mempertahankan sesi antara halaman
+	// login, POST credential, dan callback. Cookie ini hanya hidup selama
+	// handshake; setelah token didapat, request API kembali token-only.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return Student{}, fmt.Errorf("buat cookie jar login: %w", err)
+	}
+	c.http.Jar = jar
+	defer func() { c.http.Jar = nil }()
+	c.setToken("")
+
 	service := strings.TrimRight(c.cfg.Host, "/") + "/api/auth/cas-callback"
 	resp, body, err := c.request(ctx, http.MethodGet, strings.TrimRight(c.cfg.CASHost, "/")+"/cas/login?service="+url.QueryEscape(service), nil, "")
 	if err != nil || resp.StatusCode != http.StatusOK {
@@ -48,11 +60,18 @@ func (c *Client) login(ctx context.Context) (Student, error) {
 		c.setToken(token)
 	}
 	if c.Token() == "" {
-		return Student{}, errors.New("token CAS tidak ditemukan")
+		if callbackURL, parseErr := url.Parse(ticketURL); parseErr == nil {
+			if token := tokenFromCookies(c.http.Jar.Cookies(callbackURL)); token != "" {
+				c.setToken(token)
+			}
+		}
 	}
 	var student Student
 	if err := c.getJSONNoRelogin(ctx, "/api/auth/validasi-token", nil, &student); err != nil {
 		return Student{}, fmt.Errorf("validasi token: %w", err)
+	}
+	if c.Token() == "" {
+		return Student{}, errors.New("token CAS tidak ditemukan setelah validasi")
 	}
 	return student, nil
 }
