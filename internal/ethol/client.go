@@ -13,14 +13,17 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"auto-attendance/internal/config"
 )
 
 type Client struct {
-	cfg  config.Config
-	http *http.Client
+	cfg     config.Config
+	http    *http.Client
+	tokenMu sync.RWMutex
+	token   string
 }
 type Student struct {
 	Number int    `json:"nomor"`
@@ -85,11 +88,39 @@ func (c *Client) Login(ctx context.Context) (Student, error) {
 	if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return Student{}, fmt.Errorf("callback CAS: %w", responseError(resp, err))
 	}
+	if token := tokenFromCookies(resp.Cookies()); token != "" {
+		c.setToken(token)
+	}
+	if c.Token() == "" {
+		return Student{}, errors.New("token CAS tidak ditemukan")
+	}
 	var student Student
 	if err := c.getJSON(ctx, "/api/auth/validasi-token", nil, &student); err != nil {
 		return Student{}, fmt.Errorf("validasi token: %w", err)
 	}
 	return student, nil
+}
+
+// Token returns the token captured during the one-time CAS login.
+func (c *Client) Token() string {
+	c.tokenMu.RLock()
+	defer c.tokenMu.RUnlock()
+	return c.token
+}
+
+func (c *Client) setToken(token string) {
+	c.tokenMu.Lock()
+	c.token = token
+	c.tokenMu.Unlock()
+}
+
+func tokenFromCookies(cookies []*http.Cookie) string {
+	for _, cookie := range cookies {
+		if cookie.Name == "token" {
+			return cookie.Value
+		}
+	}
+	return ""
 }
 
 func (c *Client) Courses(ctx context.Context) ([]Course, error) {
@@ -213,6 +244,12 @@ func (c *Client) request(ctx context.Context, method, target string, body io.Rea
 		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", c.cfg.HTTP.UserAgent)
+	if token := c.Token(); token != "" {
+		// The cookie jar still carries the session cookie, while these headers
+		// make the captured token explicit for every subsequent API request.
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("X-Auth-Token", token)
+	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}

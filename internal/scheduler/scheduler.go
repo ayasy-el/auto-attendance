@@ -71,6 +71,9 @@ func (s *Scheduler) refresh(ctx context.Context) error {
 }
 func (s *Scheduler) interval() time.Duration {
 	now := time.Now().In(s.loc)
+	if !isWeekday(now) {
+		return untilMonday(now)
+	}
 	if s.inClass(now) {
 		d, _ := time.ParseDuration(s.cfg.Schedule.InsideClassInterval)
 		return d
@@ -85,6 +88,19 @@ func (s *Scheduler) interval() time.Duration {
 		return until
 	}
 	return d
+}
+
+func isWeekday(now time.Time) bool {
+	return now.Weekday() >= time.Monday && now.Weekday() <= time.Friday
+}
+
+func untilMonday(now time.Time) time.Duration {
+	daysUntilMonday := (int(time.Monday) - int(now.Weekday()) + 7) % 7
+	if daysUntilMonday == 0 {
+		daysUntilMonday = 7
+	}
+	next := time.Date(now.Year(), now.Month(), now.Day()+daysUntilMonday, 0, 0, 0, 0, now.Location())
+	return next.Sub(now)
 }
 
 func (s *Scheduler) inActiveWindow(now time.Time) bool {
@@ -156,7 +172,7 @@ func parseMinutes(value string) (int, error) {
 }
 func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().In(s.loc)
-	if !s.inClass(now) && !s.inActiveWindow(now) {
+	if !isWeekday(now) || (!s.inClass(now) && !s.inActiveWindow(now)) {
 		return
 	}
 	notifications, err := s.client.Notifications(ctx)
