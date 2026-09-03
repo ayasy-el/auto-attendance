@@ -109,7 +109,7 @@ func isNotLoggedIn(body []byte) bool {
 	if json.Unmarshal(body, &response) != nil || response.Success == nil {
 		return false
 	}
-	return !*response.Success && strings.EqualFold(strings.TrimSpace(response.Message), "Anda belum melakukan Login")
+	return !*response.Success && strings.EqualFold(strings.ToLower(strings.TrimSpace(response.Message)), "login") // Anda belum melakukan Login || Harap login terlebih dahulu
 }
 func responseError(resp *http.Response, err error) error {
 	if err != nil {

@@ -1,6 +1,6 @@
 # Auto Attendance
 
-Aplikasi Go untuk login CAS sekali, mempertahankan cookie token, mengambil jadwal kuliah, dan menjalankan flow presensi dari `hurl/flow-all.hurl`.
+Aplikasi Go untuk login CAS, menyimpan token secara eksplisit, mengambil jadwal kuliah, dan menjalankan flow presensi dari `hurl/flow-all.hurl`.
 
 ## Menjalankan
 
@@ -28,7 +28,7 @@ docker compose up -d --build
 docker compose logs -f auto-attendance
 ```
 
-`config.yaml` di-mount read-only ke container dan `.env` hanya diberikan sebagai environment runtime; keduanya tidak disalin ke image.
+`config.yaml` di-mount read-only ke container dan `.env` hanya diberikan sebagai environment runtime; keduanya tidak disalin ke image. Client tidak menggunakan cookie jar; request API mengirim token melalui header.
 
 `config.yaml` mendukung interval berikut:
 

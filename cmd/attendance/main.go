@@ -8,6 +8,7 @@ import (
 
 	"auto-attendance/internal/config"
 	"auto-attendance/internal/ethol"
+	"auto-attendance/internal/logging"
 	"auto-attendance/internal/scheduler"
 )
 
@@ -19,6 +20,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	logging.Configure(cfg.Timezone)
 
 	client, err := ethol.New(cfg)
 	if err != nil {
