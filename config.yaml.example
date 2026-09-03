@@ -1,13 +1,17 @@
-host: "https://ethol.example.ac.id"
-cas_host: "https://cas.example.ac.id"
+host: "https://ethol.pens.ac.id"
+cas_host: "https://login.pens.ac.id"
 username: "${USERNAME}"
 password: "${PASSWORD}"
 tahun: 2026
 semester: 1
 timezone: "Asia/Jakarta"
 schedule:
-  outside_class_interval: "15m"
-  inside_class_interval: "2m"
+  outside_class_interval:
+    min: "15m"
+    max: "20m"
+  inside_class_interval:
+    min: "2m"
+    max: "4m"
   active_start: "08:00"
   active_end: "18:00"
   run_immediately: true

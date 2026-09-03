@@ -32,8 +32,8 @@ docker compose logs -f auto-attendance
 
 `config.yaml` mendukung interval berikut:
 
-- `schedule.outside_class_interval`: default `15m`
-- `schedule.inside_class_interval`: default `2m`
+- `schedule.outside_class_interval`: rentang random, contoh `10m`–`20m`
+- `schedule.inside_class_interval`: rentang random, contoh `1m`–`3m`
 - `schedule.active_start`: awal polling, default `08:00`
 - `schedule.active_end`: akhir polling, default `18:00` (eksklusif)
 - `schedule.refresh_schedule_interval`: default `24h`

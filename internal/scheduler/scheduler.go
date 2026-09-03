@@ -75,13 +75,19 @@ func (s *Scheduler) interval() time.Duration {
 		return untilMonday(now)
 	}
 	if s.inClass(now) {
-		d, _ := time.ParseDuration(s.cfg.Schedule.InsideClassInterval)
+		d, err := s.cfg.Schedule.InsideClassInterval.RandomDuration()
+		if err != nil {
+			return time.Minute
+		}
 		return d
 	}
 	if !s.inActiveWindow(now) {
 		return s.untilActiveStart(now)
 	}
-	d, _ := time.ParseDuration(s.cfg.Schedule.OutsideClassInterval)
+	d, err := s.cfg.Schedule.OutsideClassInterval.RandomDuration()
+	if err != nil {
+		return 15 * time.Minute
+	}
 	// Wake up at the next class boundary so a 15-minute tick cannot skip
 	// the start of a class.
 	if until := s.untilNextStart(now); until > 0 && until < d {
