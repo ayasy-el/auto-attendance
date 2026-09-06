@@ -72,7 +72,7 @@ func (c *Client) request(ctx context.Context, method, target string, body io.Rea
 	log.Printf("http request: method=%s url=%s", method, target)
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
-		log.Printf("http response: method=%s url=%s status=client_error duration=%s error=%v", method, target, time.Since(started), err)
+		log.Printf("http response: status=client_error duration=%s error=%v", time.Since(started), err)
 		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", c.cfg.HTTP.UserAgent)
@@ -85,15 +85,15 @@ func (c *Client) request(ctx context.Context, method, target string, body io.Rea
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		log.Printf("http response: method=%s url=%s status=network_error duration=%s error=%v", method, target, time.Since(started), err)
+		log.Printf("http response: status=network_error duration=%s error=%v", time.Since(started), err)
 		return nil, nil, err
 	}
 	b, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if readErr != nil {
-		log.Printf("http response: method=%s url=%s status=%d duration=%s read_error=%v", method, target, resp.StatusCode, time.Since(started), readErr)
+		log.Printf("http response: status=%d duration=%s read_error=%v", resp.StatusCode, time.Since(started), readErr)
 	} else {
-		log.Printf("http response: method=%s url=%s status=%d duration=%s bytes=%d", method, target, resp.StatusCode, time.Since(started), len(b))
+		log.Printf("http response: status=%d duration=%s bytes=%d", resp.StatusCode, time.Since(started), len(b))
 	}
 	return resp, b, readErr
 }

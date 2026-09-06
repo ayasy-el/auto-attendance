@@ -40,8 +40,10 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		s.tick(ctx)
 	}
 	for {
+		now := time.Now().In(s.loc)
 		interval := s.interval()
-		log.Printf("scheduler: mode=%s next_tick_in=%s", s.mode(time.Now().In(s.loc)), interval)
+		nextTick := now.Add(interval)
+		log.Printf("scheduler: mode=%s next_tick_at=%s delay=%s", s.mode(now), nextTick.Format("2006-01-02 15:04:05 MST"), interval)
 		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
