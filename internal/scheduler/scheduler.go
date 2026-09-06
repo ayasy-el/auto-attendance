@@ -2,9 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +18,7 @@ type Scheduler struct {
 	student   ethol.Student
 	loc       *time.Location
 	schedules []ethol.ClassTime
+	courses   []ethol.Course
 	attended  map[string]time.Time
 	mu        sync.Mutex
 }
@@ -40,6 +41,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 	for {
 		interval := s.interval()
+		log.Printf("scheduler: mode=%s next_tick_in=%s", s.mode(time.Now().In(s.loc)), interval)
 		timer := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
@@ -66,7 +68,8 @@ func (s *Scheduler) refresh(ctx context.Context) error {
 		return err
 	}
 	s.schedules = schedules
-	log.Printf("jadwal dimuat: %d kuliah", len(schedules))
+	s.courses = courses
+	log.Printf("jadwal dimuat: %d kuliah, %d slot jadwal", len(courses), len(schedules))
 	return nil
 }
 func (s *Scheduler) interval() time.Duration {
@@ -182,52 +185,36 @@ func (s *Scheduler) tick(ctx context.Context) {
 	if !isWeekday(now) || (!inClass && !s.inActiveWindow(now)) {
 		return
 	}
-	notifications, err := s.client.Notifications(ctx)
-	if err != nil {
-		log.Printf("ambil notifikasi gagal: %v", err)
-		return
-	}
-	classCourses := s.classCourses(now)
-	for _, n := range notifications {
-		if n.Status != "1" {
-			continue
-		}
-		if !inClass {
-			if err := s.client.CloseNotification(ctx, n.ID); err != nil {
-				log.Printf("tutup notifikasi %s gagal: %v", n.ID, err)
-				continue
-			}
-			log.Printf("notifikasi %s ditutup di luar jam kuliah", n.ID)
-			continue
-		}
-		parts := strings.SplitN(n.Data, "-", 2)
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			continue
-		}
-		if _, ok := classCourses[parts[0]]; !ok {
-			continue
-		}
-		key := n.Data + ":" + time.Now().In(s.loc).Format("2006-01-02")
+	log.Printf("tick: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
+	for _, course := range s.courses {
+		key := fmt.Sprintf("%d:%d:%s", course.Number, course.Schema, now.Format("2006-01-02"))
 		s.mu.Lock()
 		_, done := s.attended[key]
 		s.mu.Unlock()
 		if done {
 			continue
 		}
-		presenceKey, err := s.client.Attend(ctx, n, s.student)
+		presenceKey, err := s.client.AttendCourse(ctx, course, s.student)
 		if err != nil {
-			log.Printf("presensi %s gagal: %v", n.Data, err)
-			continue
-		}
-		if err := s.client.CloseNotification(ctx, n.ID); err != nil {
-			log.Printf("presensi %s sukses, tetapi tutup notifikasi %s gagal: %v", n.Data, n.ID, err)
+			if errors.Is(err, ethol.ErrNoActivePresence) {
+				log.Printf("kuliah=%d nama=%q status=tidak_aktif", course.Number, course.Subject.Name)
+				continue
+			}
+			log.Printf("kuliah=%d nama=%q presensi=gagal error=%v", course.Number, course.Subject.Name, err)
 			continue
 		}
 		s.mu.Lock()
 		s.attended[key] = time.Now()
 		s.mu.Unlock()
-		log.Printf("presensi berhasil: kuliah=%s key=%s", n.Data, presenceKey)
+		log.Printf("kuliah=%d nama=%q presensi=sukses key=%s", course.Number, course.Subject.Name, presenceKey)
 	}
+}
+
+func (s *Scheduler) mode(now time.Time) string {
+	if s.inClass(now) {
+		return "inside-class"
+	}
+	return "outside-class"
 }
 
 func (s *Scheduler) classCourses(now time.Time) map[string]struct{} {

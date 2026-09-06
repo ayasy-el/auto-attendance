@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {
@@ -66,8 +68,11 @@ func (c *Client) putJSONNoRelogin(ctx context.Context, path string, in, out any)
 	return decode(resp, body, err, out)
 }
 func (c *Client) request(ctx context.Context, method, target string, body io.Reader, contentType string) (*http.Response, []byte, error) {
+	started := time.Now()
+	log.Printf("http request: method=%s url=%s", method, target)
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
+		log.Printf("http response: method=%s url=%s status=client_error duration=%s error=%v", method, target, time.Since(started), err)
 		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", c.cfg.HTTP.UserAgent)
@@ -80,10 +85,16 @@ func (c *Client) request(ctx context.Context, method, target string, body io.Rea
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		log.Printf("http response: method=%s url=%s status=network_error duration=%s error=%v", method, target, time.Since(started), err)
 		return nil, nil, err
 	}
 	b, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if readErr != nil {
+		log.Printf("http response: method=%s url=%s status=%d duration=%s read_error=%v", method, target, resp.StatusCode, time.Since(started), readErr)
+	} else {
+		log.Printf("http response: method=%s url=%s status=%d duration=%s bytes=%d", method, target, resp.StatusCode, time.Since(started), len(b))
+	}
 	return resp, b, readErr
 }
 func decode(resp *http.Response, body []byte, requestErr error, out any) error {
