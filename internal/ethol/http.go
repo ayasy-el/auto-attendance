@@ -15,7 +15,10 @@ import (
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {
 	err := c.getJSONNoRelogin(ctx, path, query, out)
-	if !errors.Is(err, errNotLoggedIn) {
+	if !errors.Is(err, errUnauthorized) {
+		return err
+	}
+	if isAuthPath(path) {
 		return err
 	}
 	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
@@ -38,7 +41,10 @@ func (c *Client) getJSONNoRelogin(ctx context.Context, path string, query url.Va
 }
 func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
 	err := c.postJSONNoRelogin(ctx, path, in, out)
-	if !errors.Is(err, errNotLoggedIn) {
+	if !errors.Is(err, errUnauthorized) {
+		return err
+	}
+	if isAuthPath(path) {
 		return err
 	}
 	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
@@ -61,7 +67,10 @@ func (c *Client) postJSONNoRelogin(ctx context.Context, path string, in, out any
 }
 func (c *Client) putJSON(ctx context.Context, path string, in, out any) error {
 	err := c.putJSONNoRelogin(ctx, path, in, out)
-	if !errors.Is(err, errNotLoggedIn) {
+	if !errors.Is(err, errUnauthorized) {
+		return err
+	}
+	if isAuthPath(path) {
 		return err
 	}
 	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
@@ -82,6 +91,11 @@ func (c *Client) putJSONNoRelogin(ctx context.Context, path string, in, out any)
 	resp, body, err := c.request(ctx, http.MethodPut, strings.TrimRight(c.cfg.Host, "/")+path, strings.NewReader(string(b)), "application/json")
 	return decode(resp, body, err, out)
 }
+
+func isAuthPath(path string) bool {
+	return strings.Contains(path, "/auth/")
+}
+
 func (c *Client) request(ctx context.Context, method, target string, body io.Reader, contentType string) (*http.Response, []byte, error) {
 	return c.requestWithOptions(ctx, method, target, body, contentType, "", true)
 }
@@ -148,6 +162,9 @@ func responseBodyForLog(body []byte) string {
 func decode(resp *http.Response, body []byte, requestErr error, out any) error {
 	if requestErr != nil {
 		return requestErr
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return errUnauthorized
 	}
 	if isNotLoggedIn(body) {
 		return errNotLoggedIn

@@ -32,4 +32,7 @@ func New(cfg config.Config) (*Client, error) {
 	}}, nil
 }
 
-var errNotLoggedIn = errors.New("anda belum melakukan login")
+var (
+	errNotLoggedIn  = errors.New("anda belum melakukan login")
+	errUnauthorized = errors.New("request tidak terautorisasi")
+)
