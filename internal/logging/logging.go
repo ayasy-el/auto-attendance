@@ -77,6 +77,9 @@ func colorEnabledFor(out io.Writer) bool {
 	if !colorEnabled || os.Getenv("NO_COLOR") != "" {
 		return false
 	}
+	if forceColor() {
+		return true
+	}
 
 	f, ok := out.(*os.File)
 	if !ok {
@@ -86,6 +89,15 @@ func colorEnabledFor(out io.Writer) bool {
 	info, err := f.Stat()
 
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+func forceColor() bool {
+	switch strings.ToLower(os.Getenv("FORCE_COLOR")) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func colorize(message string) string {
