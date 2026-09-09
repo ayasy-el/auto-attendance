@@ -18,6 +18,11 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out
 	if !errors.Is(err, errNotLoggedIn) {
 		return err
 	}
+	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
+		return c.getJSONNoRelogin(ctx, path, query, out)
+	} else {
+		log.Printf("refresh token gagal, mencoba login ulang: %v", refreshErr)
+	}
 	if _, loginErr := c.Login(ctx); loginErr != nil {
 		return fmt.Errorf("login ulang: %w", loginErr)
 	}
@@ -35,6 +40,11 @@ func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
 	err := c.postJSONNoRelogin(ctx, path, in, out)
 	if !errors.Is(err, errNotLoggedIn) {
 		return err
+	}
+	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
+		return c.postJSONNoRelogin(ctx, path, in, out)
+	} else {
+		log.Printf("refresh token gagal, mencoba login ulang: %v", refreshErr)
 	}
 	if _, loginErr := c.Login(ctx); loginErr != nil {
 		return fmt.Errorf("login ulang: %w", loginErr)
@@ -54,6 +64,11 @@ func (c *Client) putJSON(ctx context.Context, path string, in, out any) error {
 	if !errors.Is(err, errNotLoggedIn) {
 		return err
 	}
+	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
+		return c.putJSONNoRelogin(ctx, path, in, out)
+	} else {
+		log.Printf("refresh token gagal, mencoba login ulang: %v", refreshErr)
+	}
 	if _, loginErr := c.Login(ctx); loginErr != nil {
 		return fmt.Errorf("login ulang: %w", loginErr)
 	}
@@ -68,6 +83,14 @@ func (c *Client) putJSONNoRelogin(ctx context.Context, path string, in, out any)
 	return decode(resp, body, err, out)
 }
 func (c *Client) request(ctx context.Context, method, target string, body io.Reader, contentType string) (*http.Response, []byte, error) {
+	return c.requestWithOptions(ctx, method, target, body, contentType, "", true)
+}
+
+func (c *Client) requestWithCookie(ctx context.Context, method, target string, body io.Reader, contentType, cookie string) (*http.Response, []byte, error) {
+	return c.requestWithOptions(ctx, method, target, body, contentType, cookie, false)
+}
+
+func (c *Client) requestWithOptions(ctx context.Context, method, target string, body io.Reader, contentType, cookie string, includeToken bool) (*http.Response, []byte, error) {
 	started := time.Now()
 	log.Printf("http request: method=%s url=%s", method, target)
 	req, err := http.NewRequestWithContext(ctx, method, target, body)
@@ -76,9 +99,14 @@ func (c *Client) request(ctx context.Context, method, target string, body io.Rea
 		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", c.cfg.HTTP.UserAgent)
-	if token := c.Token(); token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("X-Auth-Token", token)
+	if includeToken {
+		if token := c.Token(); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("X-Auth-Token", token)
+		}
+	}
+	if cookie != "" {
+		req.Header.Set("Cookie", cookie)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -91,11 +119,31 @@ func (c *Client) request(ctx context.Context, method, target string, body io.Rea
 	b, readErr := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if readErr != nil {
-		log.Printf("http response: status=%d duration=%s read_error=%v", resp.StatusCode, time.Since(started), readErr)
+		log.Printf("http response: status=%d duration=%s read_error=%v body=%q", resp.StatusCode, time.Since(started), readErr, responseBodyForLog(b))
+	} else if resp.StatusCode >= 400 {
+		log.Printf("http response: status=%d duration=%s bytes=%d body=%q", resp.StatusCode, time.Since(started), len(b), responseBodyForLog(b))
+	} else if isErrorResponseBody(b) {
+		log.Printf("http response: status=%d duration=%s bytes=%d response_error=true body=%q", resp.StatusCode, time.Since(started), len(b), responseBodyForLog(b))
 	} else {
 		log.Printf("http response: status=%d duration=%s bytes=%d", resp.StatusCode, time.Since(started), len(b))
 	}
 	return resp, b, readErr
+}
+
+func isErrorResponseBody(body []byte) bool {
+	var response struct {
+		Success *bool `json:"sukses"`
+	}
+	return json.Unmarshal(body, &response) == nil && response.Success != nil && !*response.Success
+}
+
+func responseBodyForLog(body []byte) string {
+	const maxResponseBodyLog = 4096
+	value := strings.TrimSpace(string(body))
+	if len(value) > maxResponseBodyLog {
+		return value[:maxResponseBodyLog] + "... [terpotong]"
+	}
+	return value
 }
 func decode(resp *http.Response, body []byte, requestErr error, out any) error {
 	if requestErr != nil {

@@ -112,6 +112,9 @@ func colorize(message string) string {
 
 func colorForMessage(message string) string {
 	lower := strings.ToLower(message)
+	if containsAny(lower, "response_error", "read_error") {
+		return colorRed
+	}
 
 	// HTTP request
 	if strings.Contains(lower, "http request:") {

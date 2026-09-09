@@ -10,11 +10,13 @@ import (
 )
 
 type Client struct {
-	cfg     config.Config
-	http    *http.Client
-	tokenMu sync.RWMutex
-	token   string
-	loginMu sync.Mutex
+	cfg            config.Config
+	http           *http.Client
+	tokenMu        sync.RWMutex
+	token          string
+	refreshTokenMu sync.RWMutex
+	refreshToken   string
+	loginMu        sync.Mutex
 }
 
 func New(cfg config.Config) (*Client, error) {

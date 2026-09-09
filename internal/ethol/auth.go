@@ -59,11 +59,18 @@ func (c *Client) login(ctx context.Context) (Student, error) {
 	if token := tokenFromCookies(resp.Cookies()); token != "" {
 		c.setToken(token)
 	}
-	if c.Token() == "" {
-		if callbackURL, parseErr := url.Parse(ticketURL); parseErr == nil {
-			if token := tokenFromCookies(c.http.Jar.Cookies(callbackURL)); token != "" {
+	if refreshToken := refreshTokenFromCookies(resp.Cookies()); refreshToken != "" {
+		c.setRefreshToken(refreshToken)
+	}
+	if callbackURL, parseErr := url.Parse(ticketURL); parseErr == nil {
+		cookies := c.http.Jar.Cookies(callbackURL)
+		if c.Token() == "" {
+			if token := tokenFromCookies(cookies); token != "" {
 				c.setToken(token)
 			}
+		}
+		if refreshToken := refreshTokenFromCookies(cookies); refreshToken != "" {
+			c.setRefreshToken(refreshToken)
 		}
 	}
 	var student Student
@@ -78,6 +85,16 @@ func (c *Client) login(ctx context.Context) (Student, error) {
 
 func (c *Client) Token() string         { c.tokenMu.RLock(); defer c.tokenMu.RUnlock(); return c.token }
 func (c *Client) setToken(token string) { c.tokenMu.Lock(); c.token = token; c.tokenMu.Unlock() }
+func (c *Client) refreshTokenValue() string {
+	c.refreshTokenMu.RLock()
+	defer c.refreshTokenMu.RUnlock()
+	return c.refreshToken
+}
+func (c *Client) setRefreshToken(token string) {
+	c.refreshTokenMu.Lock()
+	c.refreshToken = token
+	c.refreshTokenMu.Unlock()
+}
 func tokenFromCookies(cookies []*http.Cookie) string {
 	for _, cookie := range cookies {
 		if cookie.Name == "token" {
@@ -85,4 +102,38 @@ func tokenFromCookies(cookies []*http.Cookie) string {
 		}
 	}
 	return ""
+}
+func refreshTokenFromCookies(cookies []*http.Cookie) string {
+	for _, cookie := range cookies {
+		if cookie.Name == "refresh_token" {
+			return cookie.Value
+		}
+	}
+	return ""
+}
+
+func (c *Client) refreshAccessToken(ctx context.Context) error {
+	refreshToken := c.refreshTokenValue()
+	if refreshToken == "" {
+		return errors.New("refresh token tidak tersedia")
+	}
+
+	target := strings.TrimRight(c.cfg.Host, "/") + "/api/auth/refresh"
+	resp, body, err := c.requestWithCookie(ctx, http.MethodPost, target, nil, "", "refresh_token="+refreshToken)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("refresh token: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	if token := tokenFromCookies(resp.Cookies()); token != "" {
+		c.setToken(token)
+	} else {
+		return errors.New("refresh token tidak menghasilkan access token")
+	}
+	if newRefreshToken := refreshTokenFromCookies(resp.Cookies()); newRefreshToken != "" {
+		c.setRefreshToken(newRefreshToken)
+	}
+	return nil
 }
