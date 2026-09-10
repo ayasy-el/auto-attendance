@@ -79,7 +79,7 @@ func (s *Scheduler) interval() time.Duration {
 	if !isWeekday(now) {
 		return untilMonday(now)
 	}
-	if s.inClass(now) {
+	if s.mode(now) == "inside-class" {
 		d, err := s.cfg.Schedule.InsideClassInterval.RandomDuration()
 		if err != nil {
 			return time.Minute
@@ -213,10 +213,31 @@ func (s *Scheduler) tick(ctx context.Context) {
 }
 
 func (s *Scheduler) mode(now time.Time) string {
-	if s.inClass(now) {
+	if s.inClass(now) && !s.hasAttendedActiveClass(now) {
 		return "inside-class"
 	}
 	return "outside-class"
+}
+
+func (s *Scheduler) hasAttendedActiveClass(now time.Time) bool {
+	activeCourses := s.classCourses(now)
+	if len(activeCourses) == 0 {
+		return false
+	}
+
+	date := now.Format("2006-01-02")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, course := range s.courses {
+		if _, active := activeCourses[fmt.Sprintf("%d", course.Number)]; !active {
+			continue
+		}
+		key := fmt.Sprintf("%d:%d:%s", course.Number, course.Schema, date)
+		if _, attended := s.attended[key]; attended {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Scheduler) classCourses(now time.Time) map[string]struct{} {
