@@ -202,6 +202,13 @@ func (s *Scheduler) tick(ctx context.Context) {
 				log.Printf("kuliah=%d nama=%q status=tidak_aktif", course.Number, course.Subject.Name)
 				continue
 			}
+			if errors.Is(err, ethol.ErrAlreadyAttended) {
+				s.mu.Lock()
+				s.attended[key] = time.Now()
+				s.mu.Unlock()
+				log.Printf("kuliah=%d nama=%q status=sudah_presensi", course.Number, course.Subject.Name)
+				continue
+			}
 			log.Printf("kuliah=%d nama=%q presensi=gagal error=%v", course.Number, course.Subject.Name, err)
 			continue
 		}

@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-var ErrNoActivePresence = errors.New("tidak ada presensi aktif")
+var (
+	ErrNoActivePresence = errors.New("tidak ada presensi aktif")
+	ErrAlreadyAttended  = errors.New("sudah melakukan presensi di sesi kuliah ini")
+)
 
 // Attend is kept for callers that still have a notification payload.
 func (c *Client) Attend(ctx context.Context, n Notification, student Student) (string, error) {
@@ -82,6 +85,9 @@ func (c *Client) attendCourse(ctx context.Context, kuliah, schema, origin int, s
 		}
 	}
 	if !result.Success {
+		if result.Message == "Anda sudah melakukan di sesi kuliah ini" {
+			return "", ErrAlreadyAttended
+		}
 		if result.Message != "" {
 			return "", fmt.Errorf("server menolak presensi: %s", result.Message)
 		}
