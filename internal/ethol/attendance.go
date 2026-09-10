@@ -58,6 +58,17 @@ func (c *Client) attendCourse(ctx context.Context, kuliah, schema, origin int, s
 	if key == "" {
 		return "", ErrNoActivePresence
 	}
+	var historyBeforeSubmit []struct {
+		Key string `json:"key"`
+	}
+	if err := c.getJSON(ctx, "/api/presensi/riwayat", url.Values{"kuliah": {strconv.Itoa(kuliah)}, "jenis_schema": {strconv.Itoa(schema)}, "nomor": {strconv.Itoa(student.Number)}}, &historyBeforeSubmit); err != nil {
+		return "", err
+	}
+	for _, item := range historyBeforeSubmit {
+		if item.Key == key {
+			return "", ErrAlreadyAttended
+		}
+	}
 	payload := map[string]any{"kuliah": kuliah, "jenis_schema": schema, "mahasiswa": student.Number, "key": key, "kuliah_asal": origin}
 	var result struct {
 		Success bool   `json:"sukses"`

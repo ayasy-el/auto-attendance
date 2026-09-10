@@ -190,12 +190,6 @@ func (s *Scheduler) tick(ctx context.Context) {
 	log.Printf("tick: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
 	for _, course := range s.courses {
 		key := fmt.Sprintf("%d:%d:%s", course.Number, course.Schema, now.Format("2006-01-02"))
-		s.mu.Lock()
-		_, done := s.attended[key]
-		s.mu.Unlock()
-		if done {
-			continue
-		}
 		presenceKey, err := s.client.AttendCourse(ctx, course, s.student)
 		if err != nil {
 			if errors.Is(err, ethol.ErrNoActivePresence) {
