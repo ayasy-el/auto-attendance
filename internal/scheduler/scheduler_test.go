@@ -108,3 +108,14 @@ func TestParseMinutes(t *testing.T) {
 		}
 	}
 }
+
+func TestSchedulerDryRun(t *testing.T) {
+	s := &Scheduler{}
+	if s.dryRun {
+		t.Fatal("expected default dryRun to be false")
+	}
+	s.SetDryRun(true)
+	if !s.dryRun {
+		t.Fatal("expected dryRun to be true after SetDryRun(true)")
+	}
+}

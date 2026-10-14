@@ -17,6 +17,8 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to YAML configuration")
+	once := flag.Bool("once", false, "jalankan satu kali pemeriksaan presensi lalu keluar")
+	dryRun := flag.Bool("dry-run", false, "mode simulasi, cek presensi tanpa melakukan submit")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
@@ -39,6 +41,19 @@ func main() {
 	log.Printf("login berhasil untuk %s (%d)", student.Name, student.Number)
 
 	app := scheduler.New(client, cfg, student)
+	if *dryRun {
+		app.SetDryRun(true)
+		log.Println("mode: DRY-RUN aktif (tidak ada presensi yang akan di-submit)")
+	}
+
+	if *once {
+		if err := app.RunOnce(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Print(err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := app.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Print(err)
 		os.Exit(1)

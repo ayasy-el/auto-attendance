@@ -39,13 +39,10 @@ func (c *Client) Attend(ctx context.Context, n Notification, student Student) (s
 	return c.attendCourse(ctx, kuliah, schema, details[0].Origin, student)
 }
 
-func (c *Client) AttendCourse(ctx context.Context, course Course, student Student) (string, error) {
-	return c.attendCourse(ctx, course.Number, course.Schema, course.Origin, student)
-}
-
-func (c *Client) attendCourse(ctx context.Context, kuliah, schema, origin int, student Student) (string, error) {
+// CheckPresence checks if an open presence session exists and verifies if the student has already attended.
+func (c *Client) CheckPresence(ctx context.Context, course Course, student Student) (string, error) {
 	var active []activePresence
-	if err := c.getJSON(ctx, "/api/presensi/aktif-kuliah", url.Values{"kuliah": {strconv.Itoa(kuliah)}, "jenis_schema": {strconv.Itoa(schema)}}, &active); err != nil {
+	if err := c.getJSON(ctx, "/api/presensi/aktif-kuliah", url.Values{"kuliah": {strconv.Itoa(course.Number)}, "jenis_schema": {strconv.Itoa(course.Schema)}}, &active); err != nil {
 		return "", err
 	}
 	var key string
@@ -61,7 +58,7 @@ func (c *Client) attendCourse(ctx context.Context, kuliah, schema, origin int, s
 	var historyBeforeSubmit []struct {
 		Key string `json:"key"`
 	}
-	if err := c.getJSON(ctx, "/api/presensi/riwayat", url.Values{"kuliah": {strconv.Itoa(kuliah)}, "jenis_schema": {strconv.Itoa(schema)}, "nomor": {strconv.Itoa(student.Number)}}, &historyBeforeSubmit); err != nil {
+	if err := c.getJSON(ctx, "/api/presensi/riwayat", url.Values{"kuliah": {strconv.Itoa(course.Number)}, "jenis_schema": {strconv.Itoa(course.Schema)}, "nomor": {strconv.Itoa(student.Number)}}, &historyBeforeSubmit); err != nil {
 		return "", err
 	}
 	for _, item := range historyBeforeSubmit {
@@ -69,6 +66,27 @@ func (c *Client) attendCourse(ctx context.Context, kuliah, schema, origin int, s
 			return "", ErrAlreadyAttended
 		}
 	}
+	return key, nil
+}
+
+func (c *Client) AttendCourse(ctx context.Context, course Course, student Student) (string, error) {
+	key, err := c.CheckPresence(ctx, course, student)
+	if err != nil {
+		return "", err
+	}
+	return c.submitPresence(ctx, course.Number, course.Schema, course.Origin, student, key)
+}
+
+func (c *Client) attendCourse(ctx context.Context, kuliah, schema, origin int, student Student) (string, error) {
+	course := Course{Number: kuliah, Schema: schema, Origin: origin}
+	key, err := c.CheckPresence(ctx, course, student)
+	if err != nil {
+		return "", err
+	}
+	return c.submitPresence(ctx, kuliah, schema, origin, student, key)
+}
+
+func (c *Client) submitPresence(ctx context.Context, kuliah, schema, origin int, student Student, key string) (string, error) {
 	payload := map[string]any{"kuliah": kuliah, "jenis_schema": schema, "mahasiswa": student.Number, "key": key, "kuliah_asal": origin}
 	var result struct {
 		Success bool   `json:"sukses"`

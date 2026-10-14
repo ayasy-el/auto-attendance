@@ -23,6 +23,23 @@ type Scheduler struct {
 	courses   []ethol.Course
 	attended  map[string]time.Time
 	mu        sync.Mutex
+	dryRun    bool
+}
+
+func (s *Scheduler) SetDryRun(dryRun bool) {
+	s.mu.Lock()
+	s.dryRun = dryRun
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) RunOnce(ctx context.Context) error {
+	if err := s.refresh(ctx); err != nil {
+		return fmt.Errorf("gagal memuat jadwal: %w", err)
+	}
+	now := time.Now().In(s.loc)
+	log.Printf("scan-once: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
+	s.scanCourses(ctx, now)
+	return nil
 }
 
 func New(client *ethol.Client, cfg config.Config, student ethol.Student) *Scheduler {
@@ -210,8 +227,34 @@ func (s *Scheduler) tick(ctx context.Context) {
 		return
 	}
 	log.Printf("tick: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
+	s.scanCourses(ctx, now)
+}
+
+func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
+	s.mu.Lock()
+	isDryRun := s.dryRun
+	s.mu.Unlock()
+
 	for _, course := range s.courses {
 		key := fmt.Sprintf("%d:%d:%s", course.Number, course.Schema, now.Format("2006-01-02"))
+		if isDryRun {
+			presenceKey, err := s.client.CheckPresence(ctx, course, s.student)
+			if err != nil {
+				if errors.Is(err, ethol.ErrNoActivePresence) {
+					log.Printf("[DRY-RUN] kuliah=%d nama=%q status=tidak_aktif", course.Number, course.Subject.Name)
+					continue
+				}
+				if errors.Is(err, ethol.ErrAlreadyAttended) {
+					log.Printf("[DRY-RUN] kuliah=%d nama=%q status=sudah_presensi", course.Number, course.Subject.Name)
+					continue
+				}
+				log.Printf("[DRY-RUN] kuliah=%d nama=%q status=gagal error=%v", course.Number, course.Subject.Name, err)
+				continue
+			}
+			log.Printf("[DRY-RUN] kuliah=%d nama=%q presensi=aktif key=%s (submit dilewati)", course.Number, course.Subject.Name, presenceKey)
+			continue
+		}
+
 		presenceKey, err := s.client.AttendCourse(ctx, course, s.student)
 		if err != nil {
 			if errors.Is(err, ethol.ErrNoActivePresence) {
