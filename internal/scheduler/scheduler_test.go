@@ -73,3 +73,38 @@ func TestRandomIntervalWithinConfiguredBounds(t *testing.T) {
 	}
 	_ = now
 }
+
+func TestParseMinutes(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected int
+		hasErr   bool
+	}{
+		{"08:30", 510, false},
+		{"08.30", 510, false},
+		{"08:30:00", 510, false},
+		{"08.30.00", 510, false},
+		{"08:30 WIB", 510, false},
+		{" 09:15 ", 555, false},
+		{"00:00", 0, false},
+		{"23:59", 1439, false},
+		{"", 0, true},
+		{"invalid", 0, true},
+		{"24:00", 0, true},
+		{"08:60", 0, true},
+		{"-01:00", 0, true},
+	}
+
+	for _, tc := range cases {
+		got, err := parseMinutes(tc.input)
+		if tc.hasErr && err == nil {
+			t.Errorf("parseMinutes(%q) expected error, got %d", tc.input, got)
+		}
+		if !tc.hasErr && err != nil {
+			t.Errorf("parseMinutes(%q) unexpected error: %v", tc.input, err)
+		}
+		if !tc.hasErr && got != tc.expected {
+			t.Errorf("parseMinutes(%q) = %d, expected %d", tc.input, got, tc.expected)
+		}
+	}
+}

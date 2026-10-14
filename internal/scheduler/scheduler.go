@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -178,9 +180,28 @@ func (s *Scheduler) inClass(now time.Time) bool {
 	return false
 }
 func parseMinutes(value string) (int, error) {
-	var h, m int
-	_, err := fmt.Sscanf(value, "%d:%d", &h, &m)
-	return h*60 + m, err
+	s := strings.TrimSpace(value)
+	if s == "" {
+		return 0, errors.New("waktu kosong")
+	}
+	fields := strings.Fields(s)
+	if len(fields) > 0 {
+		s = fields[0]
+	}
+	s = strings.ReplaceAll(s, ".", ":")
+	parts := strings.Split(s, ":")
+	if len(parts) < 2 {
+		return 0, fmt.Errorf("format waktu tidak valid: %q", value)
+	}
+	h, err := strconv.Atoi(parts[0])
+	if err != nil || h < 0 || h > 23 {
+		return 0, fmt.Errorf("jam tidak valid: %q", parts[0])
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil || m < 0 || m > 59 {
+		return 0, fmt.Errorf("menit tidak valid: %q", parts[1])
+	}
+	return h*60 + m, nil
 }
 func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().In(s.loc)
