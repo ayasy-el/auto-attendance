@@ -17,6 +17,16 @@ type Client struct {
 	refreshTokenMu sync.RWMutex
 	refreshToken   string
 	loginMu        sync.Mutex
+	periodMu       sync.RWMutex
+	activeYear     int
+	activeSemester int
+}
+
+func (c *Client) ResetActivePeriod() {
+	c.periodMu.Lock()
+	c.activeYear = 0
+	c.activeSemester = 0
+	c.periodMu.Unlock()
 }
 
 func New(cfg config.Config) (*Client, error) {

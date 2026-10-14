@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -14,8 +16,6 @@ type Config struct {
 	CASHost  string         `yaml:"cas_host"`
 	Username string         `yaml:"username"`
 	Password string         `yaml:"password"`
-	Tahun    int            `yaml:"tahun"`
-	Semester int            `yaml:"semester"`
 	Timezone string         `yaml:"timezone"`
 	Schedule ScheduleConfig `yaml:"schedule"`
 	HTTP     HTTPConfig     `yaml:"http"`
@@ -70,8 +70,10 @@ func (r IntervalRange) RandomDuration() (time.Duration, error) {
 }
 
 type HTTPConfig struct {
-	Timeout   string `yaml:"timeout"`
-	UserAgent string `yaml:"user_agent"`
+	Timeout          string `yaml:"timeout"`
+	UserAgent        string `yaml:"user_agent"`
+	MaxResponseBody  string `yaml:"max_response_body"`
+	MaxResponseBytes int64  `yaml:"-"`
 }
 
 func Load(path string) (Config, error) {
@@ -119,8 +121,13 @@ func Load(path string) (Config, error) {
 			return Config{}, fmt.Errorf("config %s wajib diisi", name)
 		}
 	}
-	if c.Tahun == 0 || c.Semester == 0 {
-		return Config{}, fmt.Errorf("config tahun dan semester wajib diisi")
+	maxBytes, err := parseByteSize(c.HTTP.MaxResponseBody)
+	if err != nil {
+		return Config{}, fmt.Errorf("http.max_response_body tidak valid: %w", err)
+	}
+	c.HTTP.MaxResponseBytes = maxBytes
+	if c.HTTP.MaxResponseBody == "" {
+		c.HTTP.MaxResponseBody = "10MB"
 	}
 	for name, value := range map[string]IntervalRange{"outside_class_interval": c.Schedule.OutsideClassInterval, "inside_class_interval": c.Schedule.InsideClassInterval} {
 		if _, err := value.RandomDuration(); err != nil {
@@ -144,4 +151,34 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("schedule.active_start harus sebelum schedule.active_end")
 	}
 	return c, nil
+}
+
+func parseByteSize(value string) (int64, error) {
+	s := strings.TrimSpace(strings.ToUpper(value))
+	if s == "" {
+		return 10 * 1024 * 1024, nil
+	}
+
+	multiplier := int64(1)
+	switch {
+	case strings.HasSuffix(s, "GB") || strings.HasSuffix(s, "G"):
+		multiplier = 1024 * 1024 * 1024
+		s = strings.TrimSuffix(strings.TrimSuffix(s, "GB"), "G")
+	case strings.HasSuffix(s, "MB") || strings.HasSuffix(s, "M"):
+		multiplier = 1024 * 1024
+		s = strings.TrimSuffix(strings.TrimSuffix(s, "MB"), "M")
+	case strings.HasSuffix(s, "KB") || strings.HasSuffix(s, "K"):
+		multiplier = 1024
+		s = strings.TrimSuffix(strings.TrimSuffix(s, "KB"), "K")
+	case strings.HasSuffix(s, "B"):
+		multiplier = 1
+		s = strings.TrimSuffix(s, "B")
+	}
+
+	s = strings.TrimSpace(s)
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("ukuran byte tidak valid: %q", value)
+	}
+	return n * multiplier, nil
 }

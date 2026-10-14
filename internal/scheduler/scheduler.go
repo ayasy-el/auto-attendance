@@ -61,6 +61,7 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 }
 func (s *Scheduler) refresh(ctx context.Context) error {
+	s.client.ResetActivePeriod()
 	courses, err := s.client.Courses(ctx)
 	if err != nil {
 		return err

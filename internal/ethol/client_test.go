@@ -13,7 +13,7 @@ import (
 )
 
 func testConfig(host string) config.Config {
-	return config.Config{Host: host, CASHost: host, Username: "user", Password: "pass", Tahun: 2026, Semester: 1, HTTP: config.HTTPConfig{Timeout: "5s", UserAgent: "test"}}
+	return config.Config{Host: host, CASHost: host, Username: "user", Password: "pass", HTTP: config.HTTPConfig{Timeout: "5s", UserAgent: "test"}}
 }
 
 func TestLoginUsesTemporaryCASCookieAndAPIUsesToken(t *testing.T) {
@@ -43,6 +43,9 @@ func TestLoginUsesTemporaryCASCookieAndAPIUsesToken(t *testing.T) {
 				t.Errorf("token header = %q", r.Header.Get("Authorization"))
 			}
 			fmt.Fprint(w, `{"nomor":123,"nama":"Tester"}`)
+			return
+		case "/api/auth/config":
+			fmt.Fprint(w, `{"tahun_aktif":2026,"semester_aktif":1}`)
 			return
 		case "/api/kuliah":
 			apiCookie = r.Header.Get("Cookie") != ""
@@ -95,6 +98,9 @@ func TestRequestReloginsOnceWhenSessionExpires(t *testing.T) {
 		case "/api/auth/validasi-token":
 			fmt.Fprint(w, `{"nomor":1,"nama":"Tester"}`)
 			return
+		case "/api/auth/config":
+			fmt.Fprint(w, `{"tahun_aktif":2026,"semester_aktif":1}`)
+			return
 		case "/api/kuliah":
 			if courseCalls.Add(1) == 1 {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -142,6 +148,8 @@ func TestRequestRefreshesTokenBeforeRelogin(t *testing.T) {
 			w.WriteHeader(http.StatusFound)
 		case "/api/auth/validasi-token":
 			fmt.Fprint(w, `{"nomor":1,"nama":"Tester"}`)
+		case "/api/auth/config":
+			fmt.Fprint(w, `{"tahun_aktif":2026,"semester_aktif":1}`)
 		case "/api/auth/refresh":
 			refreshCalls.Add(1)
 			cookie, err := r.Cookie("refresh_token")

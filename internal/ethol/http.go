@@ -15,7 +15,7 @@ import (
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {
 	err := c.getJSONNoRelogin(ctx, path, query, out)
-	if !errors.Is(err, errUnauthorized) {
+	if !errors.Is(err, errUnauthorized) && !errors.Is(err, errNotLoggedIn) {
 		return err
 	}
 	if isAuthPath(path) {
@@ -41,7 +41,7 @@ func (c *Client) getJSONNoRelogin(ctx context.Context, path string, query url.Va
 }
 func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
 	err := c.postJSONNoRelogin(ctx, path, in, out)
-	if !errors.Is(err, errUnauthorized) {
+	if !errors.Is(err, errUnauthorized) && !errors.Is(err, errNotLoggedIn) {
 		return err
 	}
 	if isAuthPath(path) {
@@ -67,7 +67,7 @@ func (c *Client) postJSONNoRelogin(ctx context.Context, path string, in, out any
 }
 func (c *Client) putJSON(ctx context.Context, path string, in, out any) error {
 	err := c.putJSONNoRelogin(ctx, path, in, out)
-	if !errors.Is(err, errUnauthorized) {
+	if !errors.Is(err, errUnauthorized) && !errors.Is(err, errNotLoggedIn) {
 		return err
 	}
 	if isAuthPath(path) {
@@ -130,8 +130,16 @@ func (c *Client) requestWithOptions(ctx context.Context, method, target string, 
 		log.Printf("http response: status=network_error duration=%s error=%v", time.Since(started), err)
 		return nil, nil, err
 	}
-	b, readErr := io.ReadAll(resp.Body)
+	limit := c.cfg.HTTP.MaxResponseBytes
+	if limit <= 0 {
+		limit = 10 * 1024 * 1024
+	}
+	b, readErr := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	resp.Body.Close()
+	if readErr == nil && int64(len(b)) > limit {
+		b = b[:limit]
+		log.Printf("http response: ukuran response melebihi batas konfigurasi (%d bytes), terpotong", limit)
+	}
 	if readErr != nil {
 		log.Printf("http response: status=%d duration=%s read_error=%v body=%q", resp.StatusCode, time.Since(started), readErr, responseBodyForLog(b))
 	} else if resp.StatusCode >= 400 {

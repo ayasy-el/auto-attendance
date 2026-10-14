@@ -1,9 +1,15 @@
 package ethol
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"auto-attendance/internal/config"
 )
 
 func TestIsNotLoggedIn(t *testing.T) {
@@ -50,5 +56,36 @@ func TestIsAuthPath(t *testing.T) {
 		if got := isAuthPath(path); got != want {
 			t.Errorf("isAuthPath(%q) = %v, want %v", path, got, want)
 		}
+	}
+}
+
+func TestRequestWithOptionsMaxResponseLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, strings.Repeat("A", 200))
+	}))
+	defer server.Close()
+
+	cfg := config.Config{
+		Host: server.URL,
+		HTTP: config.HTTPConfig{
+			Timeout:          "5s",
+			MaxResponseBytes: 50,
+		},
+	}
+	client, err := New(cfg)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	resp, body, err := client.request(context.Background(), http.MethodGet, server.URL, nil, "")
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+	if len(body) != 50 {
+		t.Fatalf("expected body capped at 50 bytes, got %d bytes", len(body))
 	}
 }

@@ -38,6 +38,9 @@ docker compose logs -f auto-attendance
 - `schedule.active_end`: akhir polling, default `18:00` (eksklusif)
 - `schedule.refresh_schedule_interval`: default `24h`
 
+Konfigurasi HTTP:
+- `http.max_response_body`: batas ukuran buffer response, contoh `"10MB"` (default: 10MB).
+
 Jadwal diambil dari `/api/kuliah` dan `/api/kuliah/hari-kuliah-in`. Saat tick, aplikasi membaca notifikasi `PRESENSI`, memuat detail kuliah, mencari presensi aktif, submit, lalu verifikasi riwayat. Presensi yang berhasil untuk kuliah yang sama ditandai selesai sampai hari berikutnya.
 
 Jangan commit `config.yaml` jika berisi kredensial. Tambahkan `config.yaml` ke `.gitignore` bila konfigurasi lokal akan berisi password langsung.
