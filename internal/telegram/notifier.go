@@ -22,16 +22,22 @@ func NewNotifier(client *Client, loc *time.Location) *Notifier {
 	}
 }
 
-func (n *Notifier) NotifyPresenceSuccess(ctx context.Context, courseName, key string) {
+func (n *Notifier) NotifyPresenceSuccess(ctx context.Context, courseName, dosen, key string) {
 	if n.client == nil {
 		return
 	}
 	timeStr := time.Now().In(n.loc).Format("15:04:05 MST")
+	dosenLine := ""
+	if dosen != "" {
+		dosenLine = fmt.Sprintf("👨‍🏫 <b>Dosen:</b> %s\n", html.EscapeString(dosen))
+	}
 	text := fmt.Sprintf("✅ <b>Presensi Berhasil Tercatat!</b>\n\n"+
 		"📚 <b>Mata Kuliah:</b> %s\n"+
+		"%s"+
 		"🔑 <b>Key:</b> <code>%s</code>\n"+
 		"🕒 <b>Waktu:</b> %s",
 		html.EscapeString(courseName),
+		dosenLine,
 		html.EscapeString(key),
 		timeStr,
 	)

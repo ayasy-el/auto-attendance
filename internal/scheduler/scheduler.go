@@ -15,9 +15,18 @@ import (
 )
 
 type Notifier interface {
-	NotifyPresenceSuccess(ctx context.Context, courseName, key string)
+	NotifyPresenceSuccess(ctx context.Context, courseName, dosen, key string)
 	NotifyContractApproved(ctx context.Context, courseName string)
 	NotifyPresenceFailed(ctx context.Context, courseName string, err error)
+}
+
+type AttendedRecord struct {
+	CourseNumber int
+	CourseName   string
+	Dosen        string
+	Key          string
+	Time         string
+	Date         string
 }
 
 type SchedulerStatus struct {
@@ -31,19 +40,20 @@ type SchedulerStatus struct {
 }
 
 type Scheduler struct {
-	client    *ethol.Client
-	cfg       config.Config
-	student   ethol.Student
-	loc       *time.Location
-	schedules []ethol.ClassTime
-	courses   []ethol.Course
-	attended  map[string]time.Time
-	mu        sync.Mutex
-	dryRun    bool
-	paused    bool
-	notifier  Notifier
-	startTime time.Time
-	lastTick  time.Time
+	client          *ethol.Client
+	cfg             config.Config
+	student         ethol.Student
+	loc             *time.Location
+	schedules       []ethol.ClassTime
+	courses         []ethol.Course
+	attended        map[string]time.Time
+	attendedRecords map[string]AttendedRecord
+	mu              sync.Mutex
+	dryRun          bool
+	paused          bool
+	notifier        Notifier
+	startTime       time.Time
+	lastTick        time.Time
 }
 
 func (s *Scheduler) SetNotifier(n Notifier) {
@@ -85,15 +95,15 @@ func (s *Scheduler) Status() SchedulerStatus {
 	}
 }
 
-func (s *Scheduler) AttendedToday() []string {
+func (s *Scheduler) AttendedToday() []AttendedRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().In(s.loc)
 	todayPrefix := now.Format("2006-01-02")
-	var result []string
-	for k := range s.attended {
-		if strings.HasSuffix(k, todayPrefix) {
-			result = append(result, k)
+	var result []AttendedRecord
+	for _, rec := range s.attendedRecords {
+		if rec.Date == todayPrefix {
+			result = append(result, rec)
 		}
 	}
 	return result
@@ -131,12 +141,13 @@ func New(client *ethol.Client, cfg config.Config, student ethol.Student) *Schedu
 		loc = time.Local
 	}
 	return &Scheduler{
-		client:    client,
-		cfg:       cfg,
-		student:   student,
-		loc:       loc,
-		attended:  map[string]time.Time{},
-		startTime: time.Now().In(loc),
+		client:          client,
+		cfg:             cfg,
+		student:         student,
+		loc:             loc,
+		attended:        map[string]time.Time{},
+		attendedRecords: map[string]AttendedRecord{},
+		startTime:       time.Now().In(loc),
 	}
 }
 func (s *Scheduler) Run(ctx context.Context) error {
@@ -368,6 +379,14 @@ func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 			if errors.Is(err, ethol.ErrAlreadyAttended) {
 				s.mu.Lock()
 				s.attended[key] = time.Now()
+				s.attendedRecords[key] = AttendedRecord{
+					CourseNumber: course.Number,
+					CourseName:   course.Subject.Name,
+					Dosen:        course.LecturerName(),
+					Key:          "-",
+					Time:         now.Format("15:04"),
+					Date:         now.Format("2006-01-02"),
+				}
 				s.mu.Unlock()
 				log.Printf("kuliah=%d nama=%q status=sudah_presensi", course.Number, course.Subject.Name)
 				continue
@@ -380,10 +399,18 @@ func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 		}
 		s.mu.Lock()
 		s.attended[key] = time.Now()
+		s.attendedRecords[key] = AttendedRecord{
+			CourseNumber: course.Number,
+			CourseName:   course.Subject.Name,
+			Dosen:        course.LecturerName(),
+			Key:          presenceKey,
+			Time:         now.Format("15:04"),
+			Date:         now.Format("2006-01-02"),
+		}
 		s.mu.Unlock()
 		log.Printf("kuliah=%d nama=%q presensi=sukses key=%s", course.Number, course.Subject.Name, presenceKey)
 		if notifier != nil {
-			notifier.NotifyPresenceSuccess(ctx, course.Subject.Name, presenceKey)
+			notifier.NotifyPresenceSuccess(ctx, course.Subject.Name, course.LecturerName(), presenceKey)
 		}
 	}
 }

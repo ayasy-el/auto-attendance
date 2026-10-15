@@ -81,7 +81,7 @@ func (b *Bot) pollLoop(ctx context.Context) {
 				offset = update.UpdateID + 1
 			}
 
-			b.processUpdate(ctx, update)
+			go b.processUpdate(ctx, update)
 		}
 	}
 }
@@ -96,6 +96,9 @@ func (b *Bot) processUpdate(ctx context.Context, u Update) {
 			// Unauthorized chat: silently drop
 			return
 		}
+
+		// Show loading feedback (typing indicator in header)
+		_ = b.client.SendChatAction(ctx, "typing")
 
 		resp := b.handler.Handle(ctx, u.Message.Text)
 		if resp != "" {
@@ -112,7 +115,9 @@ func (b *Bot) processUpdate(ctx context.Context, u Update) {
 			return
 		}
 
+		// Instantly clear button loading wheel and show typing indicator in chat
 		_ = b.client.AnswerCallbackQuery(ctx, u.CallbackQuery.ID)
+		_ = b.client.SendChatAction(ctx, "typing")
 
 		if u.CallbackQuery.Data != "" {
 			resp := b.handler.Handle(ctx, u.CallbackQuery.Data)

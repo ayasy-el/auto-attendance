@@ -137,6 +137,33 @@ func (c *Client) AnswerCallbackQuery(ctx context.Context, queryID string) error 
 	return nil
 }
 
+func (c *Client) SendChatAction(ctx context.Context, action string) error {
+	return c.SendChatActionToChat(ctx, c.chatID, action)
+}
+
+func (c *Client) SendChatActionToChat(ctx context.Context, chatID, action string) error {
+	if c.token == "" || chatID == "" {
+		return nil
+	}
+	payload := map[string]string{
+		"chat_id": chatID,
+		"action":  action,
+	}
+	data, _ := json.Marshal(payload)
+	endpoint := fmt.Sprintf("%s/bot%s/sendChatAction", c.baseURL, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
 func (c *Client) GetUpdates(ctx context.Context, offset int64, timeout int) ([]Update, error) {
 	if c.token == "" {
 		return nil, nil

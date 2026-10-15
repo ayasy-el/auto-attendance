@@ -29,6 +29,10 @@ func (c *Client) ResetActivePeriod() {
 	c.periodMu.Unlock()
 }
 
+func (c *Client) Config() config.Config {
+	return c.cfg
+}
+
 func New(cfg config.Config) (*Client, error) {
 	timeout, _ := time.ParseDuration(cfg.HTTP.Timeout)
 	return &Client{cfg: cfg, http: &http.Client{

@@ -228,9 +228,23 @@ func (h *CommandHandler) today() string {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("📌 <b>PRESENSI HARI INI:</b>\n\n")
-	for i, k := range attended {
-		sb.WriteString(fmt.Sprintf("%d. <code>%s</code>\n", i+1, html.EscapeString(k)))
+	sb.WriteString(fmt.Sprintf("📌 <b>PRESENSI HARI INI (%s):</b>\n\n", time.Now().In(h.loc).Format("02-01-2006")))
+	for i, r := range attended {
+		dosenStr := ""
+		if r.Dosen != "" {
+			dosenStr = fmt.Sprintf(" - %s", html.EscapeString(r.Dosen))
+		}
+		keyStr := ""
+		if r.Key != "" && r.Key != "-" {
+			keyStr = fmt.Sprintf(" (<code>%s</code>)", html.EscapeString(r.Key))
+		}
+		sb.WriteString(fmt.Sprintf("%d. <b>%s</b>%s%s • %s\n",
+			i+1,
+			html.EscapeString(r.CourseName),
+			dosenStr,
+			keyStr,
+			r.Time,
+		))
 	}
 	return strings.TrimSpace(sb.String())
 }
@@ -328,12 +342,16 @@ func (h *CommandHandler) tugas(ctx context.Context) string {
 			}
 		}
 
-		sb.WriteString(fmt.Sprintf("%d. %s <b>%s</b>\n   📚 %s\n   ⏰ Deadline: %s\n\n",
+		baseURL := strings.TrimRight(h.client.Config().Host, "/")
+		link := fmt.Sprintf("%s/mahasiswa/matakuliah/%d/tugas", baseURL, task.KuliahID)
+
+		sb.WriteString(fmt.Sprintf("%d. %s <b>%s</b>\n   📚 %s\n   ⏰ Deadline: %s\n   🔗 <a href=%q>Buka Tugas di Portal</a>\n\n",
 			i+1,
 			badge,
 			html.EscapeString(task.TaskTitle()),
 			html.EscapeString(task.CourseName),
 			html.EscapeString(deadlineStr),
+			link,
 		))
 	}
 
@@ -414,17 +432,30 @@ func (h *CommandHandler) materi(ctx context.Context) string {
 }
 
 func (h *CommandHandler) rekap(ctx context.Context) string {
-	stats, err := h.client.GetAttendanceStats(ctx)
+	stats, err := h.client.GetAttendanceStats(ctx, h.student.Number)
 	if err != nil {
 		return fmt.Sprintf("❌ <b>Gagal Mengambil Rekap:</b> %s", html.EscapeString(err.Error()))
 	}
 
-	return fmt.Sprintf("📊 <b>REKAP KEHADIRAN RESMI</b>\n\n"+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("📊 <b>REKAP KEHADIRAN RESMI</b>\n\n"+
 		"📈 <b>Rata-rata Kehadiran:</b> %.1f%%\n"+
-		"🔢 <b>Total Sesi Perkuliahan:</b> %d sesi",
+		"🔢 <b>Total Sesi Perkuliahan:</b> %d sesi\n\n",
 		stats.RataHadir,
 		stats.TotalSesi,
-	)
+	))
+
+	if len(stats.Breakdown) > 0 {
+		sb.WriteString("<b>Rincian Kehadiran per Mata Kuliah:</b>\n")
+		for _, b := range stats.Breakdown {
+			sb.WriteString(fmt.Sprintf("• <b>%s</b>: %d sesi tervalidasi\n",
+				html.EscapeString(b.CourseName),
+				b.Attended,
+			))
+		}
+	}
+
+	return strings.TrimSpace(sb.String())
 }
 
 func (h *CommandHandler) presensiKelas(ctx context.Context) string {

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 )
 
 type ScheduleItem struct {
@@ -111,9 +113,15 @@ type MaterialItem struct {
 	File    string `json:"file"`
 }
 
+type CourseBreakdown struct {
+	CourseName string
+	Attended   int
+}
+
 type AttendanceStats struct {
-	TotalSesi int     `json:"totalSesi"`
-	RataHadir float64 `json:"rataHadir"`
+	TotalSesi int               `json:"totalSesi"`
+	RataHadir float64           `json:"rataHadir"`
+	Breakdown []CourseBreakdown `json:"-"`
 }
 
 type RosterStudent struct {
@@ -146,8 +154,35 @@ func parseCourseName(v any) string {
 	return ""
 }
 
-// GetOnlineSchedule fetches the rich weekly timetable from /api/jadwal/jadwal-online.
+// Global thread-safe academic query caches with TTL
+var (
+	academicMu       sync.RWMutex
+	cachedSchedule   []ScheduleItem
+	cachedScheduleAt time.Time
+	cachedTasks      []TaskItem
+	cachedTasksAt    time.Time
+	cachedExams      []ExamItem
+	cachedExamsAt    time.Time
+	cachedStats      *AttendanceStats
+	cachedStatsAt    time.Time
+	cachedMaterials  = make(map[int][]MaterialItem)
+	cachedVideos     = make(map[int][]MaterialItem)
+	cachedMatAt      = make(map[int]time.Time)
+	cachedRoster     *RosterInfo
+	cachedRosterAt   time.Time
+)
+
+// GetOnlineSchedule fetches the rich weekly timetable with caching (TTL: 15m).
 func (c *Client) GetOnlineSchedule(ctx context.Context) ([]ScheduleItem, error) {
+	academicMu.RLock()
+	if len(cachedSchedule) > 0 && time.Since(cachedScheduleAt) < 15*time.Minute {
+		res := make([]ScheduleItem, len(cachedSchedule))
+		copy(res, cachedSchedule)
+		academicMu.RUnlock()
+		return res, nil
+	}
+	academicMu.RUnlock()
+
 	tahun, semester, err := c.ActivePeriod(ctx)
 	if err != nil {
 		return nil, err
@@ -167,11 +202,25 @@ func (c *Client) GetOnlineSchedule(ctx context.Context) ([]ScheduleItem, error) 
 		return items[i].JamAwal < items[j].JamAwal
 	})
 
+	academicMu.Lock()
+	cachedSchedule = items
+	cachedScheduleAt = time.Now()
+	academicMu.Unlock()
+
 	return items, nil
 }
 
-// GetTasks fetches pending assignments across all currently enrolled courses.
+// GetTasks fetches pending assignments across all enrolled courses with caching (TTL: 3m).
 func (c *Client) GetTasks(ctx context.Context) ([]TaskItem, error) {
+	academicMu.RLock()
+	if len(cachedTasks) > 0 && time.Since(cachedTasksAt) < 3*time.Minute {
+		res := make([]TaskItem, len(cachedTasks))
+		copy(res, cachedTasks)
+		academicMu.RUnlock()
+		return res, nil
+	}
+	academicMu.RUnlock()
+
 	courses, err := c.Courses(ctx)
 	if err != nil {
 		return nil, err
@@ -201,11 +250,25 @@ func (c *Client) GetTasks(ctx context.Context) ([]TaskItem, error) {
 		return allTasks[i].Deadline < allTasks[j].Deadline
 	})
 
+	academicMu.Lock()
+	cachedTasks = allTasks
+	cachedTasksAt = time.Now()
+	academicMu.Unlock()
+
 	return allTasks, nil
 }
 
-// GetExams fetches midterm (UTS) and final (UAS) timetables.
+// GetExams fetches midterm (UTS) and final (UAS) timetables with caching (TTL: 15m).
 func (c *Client) GetExams(ctx context.Context) ([]ExamItem, error) {
+	academicMu.RLock()
+	if len(cachedExams) > 0 && time.Since(cachedExamsAt) < 15*time.Minute {
+		res := make([]ExamItem, len(cachedExams))
+		copy(res, cachedExams)
+		academicMu.RUnlock()
+		return res, nil
+	}
+	academicMu.RUnlock()
+
 	tahun, semester, err := c.ActivePeriod(ctx)
 	if err != nil {
 		return nil, err
@@ -231,11 +294,25 @@ func (c *Client) GetExams(ctx context.Context) ([]ExamItem, error) {
 		return allExams[i].Ujian.Mulai < allExams[j].Ujian.Mulai
 	})
 
+	academicMu.Lock()
+	cachedExams = allExams
+	cachedExamsAt = time.Now()
+	academicMu.Unlock()
+
 	return allExams, nil
 }
 
-// GetMaterials fetches uploaded lecture files and videos for a course.
+// GetMaterials fetches uploaded lecture files and videos for a course with caching (TTL: 15m).
 func (c *Client) GetMaterials(ctx context.Context, course Course) ([]MaterialItem, []MaterialItem, error) {
+	academicMu.RLock()
+	if t, ok := cachedMatAt[course.Number]; ok && time.Since(t) < 15*time.Minute {
+		m := cachedMaterials[course.Number]
+		v := cachedVideos[course.Number]
+		academicMu.RUnlock()
+		return m, v, nil
+	}
+	academicMu.RUnlock()
+
 	var materials []MaterialItem
 	materiPath := fmt.Sprintf("/api/materi?matakuliah=%d&jenis_schema=%d", course.Number, course.Schema)
 	_ = c.getJSON(ctx, materiPath, nil, &materials)
@@ -244,11 +321,25 @@ func (c *Client) GetMaterials(ctx context.Context, course Course) ([]MaterialIte
 	videoPath := fmt.Sprintf("/api/video?kuliah=%d&jenis_schema=%d", course.Number, course.Schema)
 	_ = c.getJSON(ctx, videoPath, nil, &videos)
 
+	academicMu.Lock()
+	cachedMaterials[course.Number] = materials
+	cachedVideos[course.Number] = videos
+	cachedMatAt[course.Number] = time.Now()
+	academicMu.Unlock()
+
 	return materials, videos, nil
 }
 
-// GetAttendanceStats fetches official student attendance percentage and session counts.
-func (c *Client) GetAttendanceStats(ctx context.Context) (*AttendanceStats, error) {
+// GetAttendanceStats fetches official student attendance percentage and course breakdown with caching (TTL: 3m).
+func (c *Client) GetAttendanceStats(ctx context.Context, studentID int) (*AttendanceStats, error) {
+	academicMu.RLock()
+	if cachedStats != nil && time.Since(cachedStatsAt) < 3*time.Minute {
+		st := *cachedStats
+		academicMu.RUnlock()
+		return &st, nil
+	}
+	academicMu.RUnlock()
+
 	tahun, semester, err := c.ActivePeriod(ctx)
 	if err != nil {
 		return nil, err
@@ -286,11 +377,44 @@ func (c *Client) GetAttendanceStats(ctx context.Context) (*AttendanceStats, erro
 		stats.RataHadir, _ = strconv.ParseFloat(strings.TrimSpace(v), 64)
 	}
 
+	// Fetch per-course session counts if studentID is available
+	if studentID > 0 {
+		courses, _ := c.Courses(ctx)
+		for _, course := range courses {
+			var hist []struct {
+				Key string `json:"key"`
+			}
+			_ = c.getJSON(ctx, "/api/presensi/riwayat", url.Values{
+				"kuliah":       {strconv.Itoa(course.Number)},
+				"jenis_schema": {strconv.Itoa(course.Schema)},
+				"nomor":        {strconv.Itoa(studentID)},
+			}, &hist)
+
+			stats.Breakdown = append(stats.Breakdown, CourseBreakdown{
+				CourseName: course.Subject.Name,
+				Attended:   len(hist),
+			})
+		}
+	}
+
+	academicMu.Lock()
+	cachedStats = stats
+	cachedStatsAt = time.Now()
+	academicMu.Unlock()
+
 	return stats, nil
 }
 
-// GetActiveRoster finds any currently open presence session and queries attendees and absentees.
+// GetActiveRoster finds any currently open presence session with caching (TTL: 20s).
 func (c *Client) GetActiveRoster(ctx context.Context) (*RosterInfo, error) {
+	academicMu.RLock()
+	if cachedRoster != nil && time.Since(cachedRosterAt) < 20*time.Second {
+		r := cachedRoster
+		academicMu.RUnlock()
+		return r, nil
+	}
+	academicMu.RUnlock()
+
 	courses, err := c.Courses(ctx)
 	if err != nil {
 		return nil, err
@@ -330,6 +454,11 @@ func (c *Client) GetActiveRoster(ctx context.Context) (*RosterInfo, error) {
 		absentURL := fmt.Sprintf("/api/presensi/daftar-mahasiswa-tidak-hadir-kuliah?key=%s&kuliah=%d&jenis_schema=%d",
 			url.QueryEscape(key), course.Number, course.Schema)
 		_ = c.getJSON(ctx, absentURL, nil, &info.Absentees)
+
+		academicMu.Lock()
+		cachedRoster = info
+		cachedRosterAt = time.Now()
+		academicMu.Unlock()
 
 		return info, nil
 	}
