@@ -334,7 +334,7 @@ func (h *CommandHandler) tugas(ctx context.Context) string {
 		if dt, ok := ethol.ParseTaskDeadline(task.Deadline); ok {
 			diff := dt.Sub(now)
 			if diff < 0 {
-				badge = "⚪ [Selesai/Tutup]"
+				badge = "⚠️ [LEWAT]"
 			} else if diff < 24*time.Hour {
 				badge = "🔴 [Mendesak! &lt; 24 Jam]"
 			} else if diff < 72*time.Hour {
