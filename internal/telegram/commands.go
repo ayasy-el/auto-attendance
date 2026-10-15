@@ -51,6 +51,7 @@ func DefaultKeyboard() InlineKeyboardMarkup {
 			},
 			{
 				{Text: "ℹ️ Status", CallbackData: "/status"},
+				{Text: "🔄 Relogin", CallbackData: "/relogin"},
 				{Text: "❓ Bantuan", CallbackData: "/help"},
 			},
 		},
@@ -117,6 +118,12 @@ func (h *CommandHandler) Handle(ctx context.Context, text string) string {
 	case "/rekap", "rekap":
 		return h.rekap(ctx)
 
+	case "/ping", "ping":
+		return "🏓 Pong!"
+
+	case "/relogin", "relogin":
+		return h.relogin(ctx)
+
 	case "/presensi_kelas", "/kelas", "presensi_kelas", "kelas":
 		return h.presensiKelas(ctx)
 
@@ -134,8 +141,10 @@ func (h *CommandHandler) help() string {
 • /logs [n] - Lihat n baris log terakhir (default 5, maks 50)
 • /today - Daftar kehadiran tercatat hari ini
 • /whoami - Profil mahasiswa tertaut
+• /relogin - Perbarui sesi login CAS dari memori
 • /pause - Jeda scanning otomatis
 • /resume - Lanjutkan scanning otomatis
+• /ping - Tes respon koneksi bot
 
 <b>Perintah Akademik:</b>
 • /jadwal - Jadwal perkuliahan mingguan
@@ -180,6 +189,22 @@ func (h *CommandHandler) status() string {
 		st.Courses,
 		lastTickStr,
 		uptime.String(),
+	)
+}
+
+func (h *CommandHandler) relogin(ctx context.Context) string {
+	// Re-authenticate using credentials already in memory (Client.cfg) without re-reading file
+	student, err := h.client.Login(ctx)
+	if err != nil {
+		return fmt.Sprintf("❌ <b>Relogin Gagal:</b>\n<code>%s</code>", html.EscapeString(err.Error()))
+	}
+	h.student = student
+	if h.scheduler != nil {
+		h.scheduler.SetStudent(student)
+	}
+	return fmt.Sprintf("🔄 <b>Relogin Berhasil!</b>\nSesi CAS SSO diperbarui untuk <b>%s</b> (%d) menggunakan kredensial dari memori.",
+		html.EscapeString(student.Name),
+		student.Number,
 	)
 }
 

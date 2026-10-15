@@ -156,6 +156,14 @@ func parseCourseName(v any) string {
 	return ""
 }
 
+var wibLocation = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		return time.FixedZone("WIB", 7*3600)
+	}
+	return loc
+}()
+
 func ParseTaskDeadline(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" || s == "-" {
@@ -165,16 +173,16 @@ func ParseTaskDeadline(s string) (time.Time, bool) {
 	if strings.HasSuffix(clean, " WIB") {
 		clean = strings.TrimSuffix(clean, " WIB")
 		for _, layout := range []string{"02-01-2006 15:04:05", "02-01-2006 15:04", "2006-01-02 15:04:05", "2006-01-02 15:04"} {
-			if t, err := time.ParseInLocation(layout, clean, time.Local); err == nil {
+			if t, err := time.ParseInLocation(layout, clean, wibLocation); err == nil {
 				return t, true
 			}
 		}
 	}
 	layouts := []string{
-		"02-01-2006 15:04 WIB",
 		"02-01-2006 15:04:05 WIB",
-		"02-01-2006 15:04",
+		"02-01-2006 15:04 WIB",
 		"02-01-2006 15:04:05",
+		"02-01-2006 15:04",
 		"2006-01-02 15:04:05",
 		"2006-01-02 15:04",
 		"2006-01-02T15:04:05",
@@ -182,7 +190,7 @@ func ParseTaskDeadline(s string) (time.Time, bool) {
 		"02-01-2006",
 	}
 	for _, layout := range layouts {
-		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+		if t, err := time.ParseInLocation(layout, s, wibLocation); err == nil {
 			return t, true
 		}
 	}

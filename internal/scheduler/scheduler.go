@@ -148,6 +148,12 @@ func (s *Scheduler) SetTasks(tasks []ethol.TaskItem) {
 	s.mu.Unlock()
 }
 
+func (s *Scheduler) SetStudent(student ethol.Student) {
+	s.mu.Lock()
+	s.student = student
+	s.mu.Unlock()
+}
+
 func (s *Scheduler) CheckTaskReminders(ctx context.Context) {
 	s.checkTaskReminders(ctx)
 }

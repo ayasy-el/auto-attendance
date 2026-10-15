@@ -129,6 +129,12 @@ func TestCommandHandler_BasicCommands(t *testing.T) {
 		t.Fatalf("expected logs 10 response, got %q", logs10Resp)
 	}
 
+	// Test /ping
+	pingResp := handler.Handle(ctx, "/ping")
+	if pingResp != "🏓 Pong!" {
+		t.Fatalf("expected 🏓 Pong!, got %q", pingResp)
+	}
+
 	// Test unknown command
 	unknownResp := handler.Handle(ctx, "/unknown_cmd")
 	if !strings.Contains(unknownResp, "tidak dikenali") {

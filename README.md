@@ -89,8 +89,10 @@ When `telegram.token` and `telegram.chat_id` are configured, the daemon listens 
 | `/logs [n]` | Displays the last `n` lines of logs from the SQLite store (default: 5, max: 50) |
 | `/today` | Lists courses successfully attended today |
 | `/whoami` | Displays linked student profile (Name and ID) |
+| `/relogin` | Re-authenticates CAS SSO session using in-memory credentials |
 | `/pause` | Temporarily pauses automated attendance scanning |
 | `/resume` | Resumes automated attendance scanning |
+| `/ping` | Connectivity check (replies with `🏓 Pong!`) |
 | `/jadwal` | Displays weekly class schedule with room, time, and lecturer |
 | `/tugas` | Lists active assignments sorted by deadline with urgency badges (🔴, 🟡, 🟢) |
 | `/ujian` | Displays scheduled midterm (UTS) and final (UAS) exam timetables |
