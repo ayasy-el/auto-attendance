@@ -14,6 +14,22 @@ import (
 	"auto-attendance/internal/ethol"
 )
 
+type Notifier interface {
+	NotifyPresenceSuccess(ctx context.Context, courseName, key string)
+	NotifyContractApproved(ctx context.Context, courseName string)
+	NotifyPresenceFailed(ctx context.Context, courseName string, err error)
+}
+
+type SchedulerStatus struct {
+	StartTime time.Time
+	LastTick  time.Time
+	Mode      string
+	IsPaused  bool
+	IsDryRun  bool
+	Courses   int
+	Student   ethol.Student
+}
+
 type Scheduler struct {
 	client    *ethol.Client
 	cfg       config.Config
@@ -24,6 +40,73 @@ type Scheduler struct {
 	attended  map[string]time.Time
 	mu        sync.Mutex
 	dryRun    bool
+	paused    bool
+	notifier  Notifier
+	startTime time.Time
+	lastTick  time.Time
+}
+
+func (s *Scheduler) SetNotifier(n Notifier) {
+	s.mu.Lock()
+	s.notifier = n
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) Pause() {
+	s.mu.Lock()
+	s.paused = true
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) Resume() {
+	s.mu.Lock()
+	s.paused = false
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) IsPaused() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.paused
+}
+
+func (s *Scheduler) Status() SchedulerStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().In(s.loc)
+	return SchedulerStatus{
+		StartTime: s.startTime,
+		LastTick:  s.lastTick,
+		Mode:      s.mode(now),
+		IsPaused:  s.paused,
+		IsDryRun:  s.dryRun,
+		Courses:   len(s.courses),
+		Student:   s.student,
+	}
+}
+
+func (s *Scheduler) AttendedToday() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().In(s.loc)
+	todayPrefix := now.Format("2006-01-02")
+	var result []string
+	for k := range s.attended {
+		if strings.HasSuffix(k, todayPrefix) {
+			result = append(result, k)
+		}
+	}
+	return result
+}
+
+func (s *Scheduler) TriggerCheck(ctx context.Context) (int, error) {
+	if err := s.refresh(ctx); err != nil {
+		return 0, fmt.Errorf("gagal memuat jadwal: %w", err)
+	}
+	now := time.Now().In(s.loc)
+	log.Printf("trigger-check: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
+	s.scanCourses(ctx, now)
+	return len(s.courses), nil
 }
 
 func (s *Scheduler) SetDryRun(dryRun bool) {
@@ -47,7 +130,14 @@ func New(client *ethol.Client, cfg config.Config, student ethol.Student) *Schedu
 	if err != nil {
 		loc = time.Local
 	}
-	return &Scheduler{client: client, cfg: cfg, student: student, loc: loc, attended: map[string]time.Time{}}
+	return &Scheduler{
+		client:    client,
+		cfg:       cfg,
+		student:   student,
+		loc:       loc,
+		attended:  map[string]time.Time{},
+		startTime: time.Now().In(loc),
+	}
 }
 func (s *Scheduler) Run(ctx context.Context) error {
 	if err := s.refresh(ctx); err != nil {
@@ -60,6 +150,18 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	}
 	for {
 		now := time.Now().In(s.loc)
+		if s.IsPaused() {
+			log.Printf("scheduler: mode=paused next_tick_in=1m")
+			timer := time.NewTimer(1 * time.Minute)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+				continue
+			}
+		}
+
 		interval := s.interval()
 		nextTick := now.Add(interval)
 		log.Printf("scheduler: mode=%s next_tick_at=%s delay=%s", s.mode(now), nextTick.Format("2006-01-02 15:04:05 MST"), interval)
@@ -233,6 +335,8 @@ func (s *Scheduler) tick(ctx context.Context) {
 func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 	s.mu.Lock()
 	isDryRun := s.dryRun
+	notifier := s.notifier
+	s.lastTick = now
 	s.mu.Unlock()
 
 	for _, course := range s.courses {
@@ -269,12 +373,18 @@ func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 				continue
 			}
 			log.Printf("kuliah=%d nama=%q presensi=gagal error=%v", course.Number, course.Subject.Name, err)
+			if notifier != nil {
+				notifier.NotifyPresenceFailed(ctx, course.Subject.Name, err)
+			}
 			continue
 		}
 		s.mu.Lock()
 		s.attended[key] = time.Now()
 		s.mu.Unlock()
 		log.Printf("kuliah=%d nama=%q presensi=sukses key=%s", course.Number, course.Subject.Name, presenceKey)
+		if notifier != nil {
+			notifier.NotifyPresenceSuccess(ctx, course.Subject.Name, presenceKey)
+		}
 	}
 }
 

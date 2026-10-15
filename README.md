@@ -12,6 +12,9 @@
 
 - **Automated Presence:** Detects active class sessions and submits attendance automatically.
 - **CAS SSO Authentication:** Authenticates seamlessly with university CAS SSO systems.
+- **Telegram Assistant & Alerts:** Real-time presence notifications and two-way control bot (`/status`, `/check`, `/logs`, `/jadwal`, `/tugas`, etc.).
+- **SQLite Log Retention:** Persists execution logs in SQLite with daily pruning (`retention_days`) and remote viewing via `/logs [n]`.
+- **Academic Queries:** Direct queries for weekly timetable, active assignments, exam schedules, course materials, and class rosters.
 - **Smart Scheduling:** Polls dynamically based on your timetable with human-like randomized intervals.
 - **Auto-Contract Approval:** Automatically accepts pending course agreements required prior to presence submission.
 - **Execution Modes:** Supports continuous background daemon, single-pass check (`-once`), and simulation mode (`-dry-run`).
@@ -75,6 +78,29 @@ go run ./cmd/attendance -config config.yaml -once -dry-run
 
 ---
 
+## Telegram Bot Commands
+
+When `telegram.token` and `telegram.chat_id` are configured, the daemon listens for commands and provides an interactive inline keyboard. Unauthorized chat IDs are silently ignored.
+
+| Command | Description |
+| :--- | :--- |
+| `/status` | Daemon status, operational mode, active courses count, and uptime |
+| `/check` | Triggers an immediate attendance scan cycle |
+| `/logs [n]` | Displays the last `n` lines of logs from the SQLite store (default: 5, max: 50) |
+| `/today` | Lists courses successfully attended today |
+| `/whoami` | Displays linked student profile (Name and ID) |
+| `/pause` | Temporarily pauses automated attendance scanning |
+| `/resume` | Resumes automated attendance scanning |
+| `/jadwal` | Displays weekly class schedule with room, time, and lecturer |
+| `/tugas` | Lists active assignments sorted by deadline with urgency badges (🔴, 🟡, 🟢) |
+| `/ujian` | Displays scheduled midterm (UTS) and final (UAS) exam timetables |
+| `/materi` | Lists uploaded lecture materials and video recordings |
+| `/rekap` | Official attendance rate and total sessions summary |
+| `/presensi_kelas` | Displays live attendance roster (attendees and absentees) for active class sessions |
+| `/help` | Displays command list and help menu |
+
+---
+
 ## Docker Deployment
 
 ### Docker Compose
@@ -124,6 +150,15 @@ http:
   timeout: "30s"
   max_response_body: "10MB"
   user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
+
+logging:
+  db_path: "logs/app.db"
+  retention_days: 7
+
+# Optional: Telegram bot notifications and interactive commands
+telegram:
+  token: "${TELEGRAM_TOKEN}"
+  chat_id: "${TELEGRAM_CHAT_ID}"
 ```
 
 | Key | Type | Default | Description |
@@ -138,6 +173,10 @@ http:
 | `schedule.refresh_schedule_interval` | duration | `24h` | Schedule reload interval |
 | `http.timeout` | duration | `30s` | HTTP request timeout |
 | `http.max_response_body` | string | `10MB` | Maximum response buffer limit |
+| `logging.db_path` | string | `logs/app.db` | Path to SQLite database file for log retention |
+| `logging.retention_days` | int | `7` | Number of days to retain logs in SQLite (0 = forever) |
+| `telegram.token` | string | - | Bot token from [@BotFather](https://t.me/BotFather) |
+| `telegram.chat_id` | string | - | Authorized Telegram Chat ID (user or group ID) |
 
 ---
 

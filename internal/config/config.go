@@ -19,6 +19,18 @@ type Config struct {
 	Timezone string         `yaml:"timezone"`
 	Schedule ScheduleConfig `yaml:"schedule"`
 	HTTP     HTTPConfig     `yaml:"http"`
+	Logging  LoggingConfig  `yaml:"logging"`
+	Telegram TelegramConfig `yaml:"telegram"`
+}
+
+type LoggingConfig struct {
+	DBPath        string `yaml:"db_path"`
+	RetentionDays int    `yaml:"retention_days"`
+}
+
+type TelegramConfig struct {
+	Token  string `yaml:"token"`
+	ChatID string `yaml:"chat_id"`
 }
 
 type ScheduleConfig struct {
@@ -86,6 +98,15 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("parse config: %w", err)
 	}
 	c.Host, c.CASHost, c.Username, c.Password = os.ExpandEnv(c.Host), os.ExpandEnv(c.CASHost), os.ExpandEnv(c.Username), os.ExpandEnv(c.Password)
+	c.Telegram.Token = os.ExpandEnv(c.Telegram.Token)
+	c.Telegram.ChatID = os.ExpandEnv(c.Telegram.ChatID)
+	c.Logging.DBPath = os.ExpandEnv(c.Logging.DBPath)
+	if c.Logging.DBPath == "" {
+		c.Logging.DBPath = "logs/app.db"
+	}
+	if c.Logging.RetentionDays <= 0 {
+		c.Logging.RetentionDays = 7
+	}
 	if c.Timezone == "" {
 		c.Timezone = "Asia/Jakarta"
 	}

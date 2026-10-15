@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"auto-attendance/internal/config"
 	"auto-attendance/internal/ethol"
 	"auto-attendance/internal/logging"
 	"auto-attendance/internal/scheduler"
+	"auto-attendance/internal/telegram"
 )
 
 func main() {
@@ -25,7 +27,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	logging.Configure(cfg.Timezone)
+
+	logStore, err := logging.Configure(cfg.Timezone, cfg.Logging.DBPath, cfg.Logging.RetentionDays)
+	if err != nil {
+		log.Printf("peringatan: gagal membuka sqlite log store: %v", err)
+	}
+	if logStore != nil {
+		defer logStore.Close()
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -44,6 +53,17 @@ func main() {
 	if *dryRun {
 		app.SetDryRun(true)
 		log.Println("mode: DRY-RUN aktif (tidak ada presensi yang akan di-submit)")
+	}
+
+	// Initialize Telegram Bot & Notifier if configured
+	if cfg.Telegram.Token != "" && cfg.Telegram.ChatID != "" {
+		loc, _ := time.LoadLocation(cfg.Timezone)
+		bot := telegram.NewBot(cfg.Telegram.Token, cfg.Telegram.ChatID, client, app, student, loc)
+		if bot != nil {
+			notifier := telegram.NewNotifier(bot.Client(), loc)
+			app.SetNotifier(notifier)
+			bot.Start(ctx)
+		}
 	}
 
 	if *once {
