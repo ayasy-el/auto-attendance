@@ -2,7 +2,7 @@
 .tmp/
 config.yaml
 /bin/
-logs/
+data/
 *.db*
 
 __pycache__

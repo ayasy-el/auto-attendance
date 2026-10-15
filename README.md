@@ -110,7 +110,7 @@ When `telegram.token` and `telegram.chat_id` are configured, the daemon listens 
 1. Prepare `config.yaml` and `.env`.
 2. Start the container in detached mode:
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 3. View logs:
    ```bash
@@ -120,6 +120,8 @@ When `telegram.token` and `telegram.chat_id` are configured, the daemon listens 
    ```bash
    docker compose down
    ```
+
+> **Note:** Persistent state and logs (SQLite `log.db`) are managed via Docker's named volume `data`.
 
 ---
 
