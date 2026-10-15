@@ -102,7 +102,9 @@ func (b *Bot) processUpdate(ctx context.Context, u Update) {
 
 		resp := b.handler.Handle(ctx, u.Message.Text)
 		if resp != "" {
-			_ = b.client.SendMessage(ctx, resp, keyboard)
+			if err := b.client.SendMessage(ctx, resp, keyboard); err != nil {
+				log.Printf("telegram: gagal mengirim pesan: %v", err)
+			}
 		}
 		return
 	}
@@ -122,7 +124,9 @@ func (b *Bot) processUpdate(ctx context.Context, u Update) {
 		if u.CallbackQuery.Data != "" {
 			resp := b.handler.Handle(ctx, u.CallbackQuery.Data)
 			if resp != "" {
-				_ = b.client.SendMessage(ctx, resp, keyboard)
+				if err := b.client.SendMessage(ctx, resp, keyboard); err != nil {
+					log.Printf("telegram: gagal mengirim pesan callback: %v", err)
+				}
 			}
 		}
 	}

@@ -61,6 +61,8 @@ type TaskItem struct {
 	DeadlineID string `json:"deadline_indonesia"`
 	KuliahID   int    `json:"kuliah_id"`
 	CourseName string `json:"matkul"`
+	Submission any    `json:"submission_time"`
+	Tutup      any    `json:"tutup"`
 }
 
 func (t TaskItem) TaskTitle() string {
@@ -154,6 +156,80 @@ func parseCourseName(v any) string {
 	return ""
 }
 
+func ParseTaskDeadline(s string) (time.Time, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "-" {
+		return time.Time{}, false
+	}
+	clean := s
+	if strings.HasSuffix(clean, " WIB") {
+		clean = strings.TrimSuffix(clean, " WIB")
+		for _, layout := range []string{"02-01-2006 15:04:05", "02-01-2006 15:04", "2006-01-02 15:04:05", "2006-01-02 15:04"} {
+			if t, err := time.ParseInLocation(layout, clean, time.Local); err == nil {
+				return t, true
+			}
+		}
+	}
+	layouts := []string{
+		"02-01-2006 15:04 WIB",
+		"02-01-2006 15:04:05 WIB",
+		"02-01-2006 15:04",
+		"02-01-2006 15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		"2006-01-02T15:04:05",
+		"2006-01-02",
+		"02-01-2006",
+	}
+	for _, layout := range layouts {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+func isTaskSubmitted(v any) bool {
+	if v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case int:
+		return val != 0
+	case float64:
+		return val != 0
+	case string:
+		s := strings.TrimSpace(val)
+		if s == "" || s == "null" || s == "0" || strings.EqualFold(s, "false") {
+			return false
+		}
+		return true
+	default:
+		return true
+	}
+}
+
+func isTaskClosed(v any) bool {
+	if v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case int:
+		return val == 1
+	case float64:
+		return int(val) == 1
+	case string:
+		s := strings.TrimSpace(val)
+		return s == "1" || strings.EqualFold(s, "true")
+	default:
+		return false
+	}
+}
+
 // Global thread-safe academic query caches with TTL
 var (
 	academicMu       sync.RWMutex
@@ -238,6 +314,15 @@ func (c *Client) GetTasks(ctx context.Context) ([]TaskItem, error) {
 			cName = fmt.Sprintf("Kuliah #%d", course.Number)
 		}
 		for i := range tasks {
+			if isTaskSubmitted(tasks[i].Submission) || isTaskClosed(tasks[i].Tutup) {
+				continue
+			}
+			if tasks[i].Title == "" && tasks[i].Judul != "" {
+				tasks[i].Title = tasks[i].Judul
+			}
+			if tasks[i].Deadline == "" && tasks[i].DeadlineID != "" {
+				tasks[i].Deadline = tasks[i].DeadlineID
+			}
 			if tasks[i].CourseName == "" {
 				tasks[i].CourseName = cName
 			}
@@ -247,6 +332,17 @@ func (c *Client) GetTasks(ctx context.Context) ([]TaskItem, error) {
 	}
 
 	sort.SliceStable(allTasks, func(i, j int) bool {
+		ta, okA := ParseTaskDeadline(allTasks[i].Deadline)
+		tb, okB := ParseTaskDeadline(allTasks[j].Deadline)
+		if okA && okB {
+			return ta.Before(tb)
+		}
+		if okA {
+			return true
+		}
+		if okB {
+			return false
+		}
 		return allTasks[i].Deadline < allTasks[j].Deadline
 	})
 

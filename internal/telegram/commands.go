@@ -331,14 +331,14 @@ func (h *CommandHandler) tugas(ctx context.Context) string {
 			deadlineStr = task.DeadlineID
 		}
 
-		if dl, err := time.ParseInLocation("2006-01-02 15:04:05", task.Deadline, h.loc); err == nil {
-			diff := dl.Sub(now)
+		if dt, ok := ethol.ParseTaskDeadline(task.Deadline); ok {
+			diff := dt.Sub(now)
 			if diff < 0 {
-				badge = "⚪ (Selesai/Tutup)"
+				badge = "⚪ [Selesai/Tutup]"
 			} else if diff < 24*time.Hour {
-				badge = "🔴 (Mendesak! < 24 Jam)"
+				badge = "🔴 [Mendesak! &lt; 24 Jam]"
 			} else if diff < 72*time.Hour {
-				badge = "🟡 (H-3)"
+				badge = "🟡 [H-3]"
 			}
 		}
 
