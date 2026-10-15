@@ -1,6 +1,7 @@
 .env
 .tmp/
 config.yaml
+/bin/
 
 __pycache__
 dump/
