@@ -36,7 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	logStore, err := logging.Configure(cfg.Timezone, cfg.Logging.DBPath, cfg.Logging.RetentionDays)
+	logStore, err := logging.Configure(cfg.Timezone, "log.db", cfg.Logging.RetentionDays)
 	if err != nil {
 		log.Printf("peringatan: gagal membuka sqlite log store: %v", err)
 	}

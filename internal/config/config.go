@@ -24,8 +24,7 @@ type Config struct {
 }
 
 type LoggingConfig struct {
-	DBPath        string `yaml:"db_path"`
-	RetentionDays int    `yaml:"retention_days"`
+	RetentionDays int `yaml:"retention_days"`
 }
 
 type TelegramConfig struct {
@@ -100,10 +99,6 @@ func Load(path string) (Config, error) {
 	c.Host, c.CASHost, c.Username, c.Password = os.ExpandEnv(c.Host), os.ExpandEnv(c.CASHost), os.ExpandEnv(c.Username), os.ExpandEnv(c.Password)
 	c.Telegram.Token = os.ExpandEnv(c.Telegram.Token)
 	c.Telegram.ChatID = os.ExpandEnv(c.Telegram.ChatID)
-	c.Logging.DBPath = os.ExpandEnv(c.Logging.DBPath)
-	if c.Logging.DBPath == "" {
-		c.Logging.DBPath = "logs/app.db"
-	}
 	if c.Logging.RetentionDays <= 0 {
 		c.Logging.RetentionDays = 7
 	}

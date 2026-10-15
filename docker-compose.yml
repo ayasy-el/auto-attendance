@@ -14,5 +14,5 @@ services:
       FORCE_COLOR: "1"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-      - ./logs:/app/logs
+      - ./log.db:/app/log.db
     init: true

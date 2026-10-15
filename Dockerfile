@@ -21,7 +21,7 @@ FROM alpine:3.22
 
 RUN addgroup -S app && adduser -S -G app app \
     && apk add --no-cache ca-certificates tzdata \
-    && mkdir -p /app/logs && chown -R app:app /app
+    && touch /app/log.db && chown -R app:app /app
 
 WORKDIR /app
 COPY --from=builder --chown=app:app /out/auto-attendance /app/auto-attendance
