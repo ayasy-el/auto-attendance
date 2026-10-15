@@ -286,16 +286,20 @@ func (c *Client) GetOnlineSchedule(ctx context.Context) ([]ScheduleItem, error) 
 	return items, nil
 }
 
-// GetTasks fetches pending assignments across all enrolled courses with caching (TTL: 3m).
-func (c *Client) GetTasks(ctx context.Context) ([]TaskItem, error) {
-	academicMu.RLock()
-	if len(cachedTasks) > 0 && time.Since(cachedTasksAt) < 3*time.Minute {
-		res := make([]TaskItem, len(cachedTasks))
-		copy(res, cachedTasks)
+// GetTasks fetches pending assignments across all enrolled courses.
+// If skipCache is provided and true, it bypasses the in-memory cache and fetches fresh data from ETHOL.
+func (c *Client) GetTasks(ctx context.Context, skipCache ...bool) ([]TaskItem, error) {
+	bypass := len(skipCache) > 0 && skipCache[0]
+	if !bypass {
+		academicMu.RLock()
+		if len(cachedTasks) > 0 && time.Since(cachedTasksAt) < 3*time.Minute {
+			res := make([]TaskItem, len(cachedTasks))
+			copy(res, cachedTasks)
+			academicMu.RUnlock()
+			return res, nil
+		}
 		academicMu.RUnlock()
-		return res, nil
 	}
-	academicMu.RUnlock()
 
 	courses, err := c.Courses(ctx)
 	if err != nil {

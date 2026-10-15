@@ -69,7 +69,7 @@ func main() {
 		loc, _ := time.LoadLocation(cfg.Timezone)
 		bot := telegram.NewBot(cfg.Telegram.Token, cfg.Telegram.ChatID, client, app, student, loc, Version)
 		if bot != nil {
-			notifier := telegram.NewNotifier(bot.Client(), loc)
+			notifier := telegram.NewNotifier(bot.Client(), loc, cfg.Host)
 			app.SetNotifier(notifier)
 			bot.Start(ctx)
 		}

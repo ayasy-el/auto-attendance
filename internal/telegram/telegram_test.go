@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -187,5 +188,47 @@ func TestBot_ProcessUpdate_SecurityFilter(t *testing.T) {
 	bot.processUpdate(ctx, authUpdate)
 	if sentMessage.Load() != 1 {
 		t.Fatalf("expected authorized message to receive response, sentMessage = %d", sentMessage.Load())
+	}
+}
+
+func TestNotifier_NotifyTaskReminder(t *testing.T) {
+	var sentText string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if txt, ok := body["text"].(string); ok {
+			sentText = txt
+		}
+		fmt.Fprint(w, `{"ok":true,"result":{"message_id":1}}`)
+	}))
+	defer server.Close()
+
+	client := NewClient("TOKEN", "99999")
+	client.baseURL = server.URL
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+
+	notifier := NewNotifier(client, loc, "https://ethol.pens.ac.id")
+
+	task := ethol.TaskItem{
+		KuliahID:   221585,
+		CourseName: "Workshop Jaringan",
+		Title:      "Modul 5",
+		Deadline:   "16-10-2026 23:59 WIB",
+	}
+
+	notifier.NotifyTaskReminder(context.Background(), task, "Kurang 3 Jam", 2*time.Hour+45*time.Minute)
+
+	if !strings.Contains(sentText, "PENGINGAT DEADLINE TUGAS (Kurang 3 Jam)") {
+		t.Fatalf("expected stage in text, got: %s", sentText)
+	}
+	if !strings.Contains(sentText, "Modul 5") || !strings.Contains(sentText, "Workshop Jaringan") {
+		t.Fatalf("expected task and course title in text, got: %s", sentText)
+	}
+	if !strings.Contains(sentText, "2 jam 45 menit") {
+		t.Fatalf("expected remaining time string, got: %s", sentText)
+	}
+	if !strings.Contains(sentText, "https://ethol.pens.ac.id/mahasiswa/matakuliah/221585/tugas") {
+		t.Fatalf("expected portal link in text, got: %s", sentText)
 	}
 }

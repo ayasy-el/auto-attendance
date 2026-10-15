@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -117,5 +119,82 @@ func TestSchedulerDryRun(t *testing.T) {
 	s.SetDryRun(true)
 	if !s.dryRun {
 		t.Fatal("expected dryRun to be true after SetDryRun(true)")
+	}
+}
+
+type testNotifier struct {
+	reminders []string
+}
+
+func (n *testNotifier) NotifyPresenceSuccess(ctx context.Context, courseName, dosen, key string) {}
+func (n *testNotifier) NotifyContractApproved(ctx context.Context, courseName string)           {}
+func (n *testNotifier) NotifyPresenceFailed(ctx context.Context, courseName string, err error)    {}
+func (n *testNotifier) NotifyTaskReminder(ctx context.Context, task ethol.TaskItem, stage string, remaining time.Duration) {
+	n.reminders = append(n.reminders, fmt.Sprintf("%s:%s", task.TaskTitle(), stage))
+}
+
+func TestScheduler_TaskRemindersDeduplication(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	n := &testNotifier{}
+	s := &Scheduler{
+		loc:           loc,
+		sentReminders: make(map[string]bool),
+		notifier:      n,
+	}
+
+	ctx := context.Background()
+
+	// Task with 20h remaining (within H-1 / 24h)
+	now := time.Now().In(loc)
+	deadline20h := now.Add(20 * time.Hour).Format("02-01-2006 15:04:05")
+
+	task := ethol.TaskItem{
+		KuliahID: 101,
+		Title:    "Laporan Akhir",
+		Deadline: deadline20h,
+	}
+
+	s.SetTasks([]ethol.TaskItem{task})
+
+	// First check: should trigger "Deadline H-1"
+	s.CheckTaskReminders(ctx)
+	if len(n.reminders) != 1 || n.reminders[0] != "Laporan Akhir:Deadline H-1" {
+		t.Fatalf("expected 1 reminder 'Deadline H-1', got: %v", n.reminders)
+	}
+
+	// Second check with same deadline: should be deduplicated (no new reminder)
+	s.CheckTaskReminders(ctx)
+	if len(n.reminders) != 1 {
+		t.Fatalf("expected reminder to be deduplicated, got: %v", n.reminders)
+	}
+
+	// Update task to 4h remaining (within 5h)
+	deadline4h := now.Add(4 * time.Hour).Format("02-01-2006 15:04:05")
+	task.Deadline = deadline4h
+	s.SetTasks([]ethol.TaskItem{task})
+
+	s.CheckTaskReminders(ctx)
+	if len(n.reminders) != 2 || n.reminders[1] != "Laporan Akhir:Kurang 5 Jam" {
+		t.Fatalf("expected second reminder 'Kurang 5 Jam', got: %v", n.reminders)
+	}
+
+	// Update task to 2h remaining (within 3h)
+	deadline2h := now.Add(2 * time.Hour).Format("02-01-2006 15:04:05")
+	task.Deadline = deadline2h
+	s.SetTasks([]ethol.TaskItem{task})
+
+	s.CheckTaskReminders(ctx)
+	if len(n.reminders) != 3 || n.reminders[2] != "Laporan Akhir:Kurang 3 Jam" {
+		t.Fatalf("expected third reminder 'Kurang 3 Jam', got: %v", n.reminders)
+	}
+
+	// Update task to 40m remaining (within 1h)
+	deadline40m := now.Add(40 * time.Minute).Format("02-01-2006 15:04:05")
+	task.Deadline = deadline40m
+	s.SetTasks([]ethol.TaskItem{task})
+
+	s.CheckTaskReminders(ctx)
+	if len(n.reminders) != 4 || n.reminders[3] != "Laporan Akhir:Kurang 1 Jam" {
+		t.Fatalf("expected fourth reminder 'Kurang 1 Jam', got: %v", n.reminders)
 	}
 }

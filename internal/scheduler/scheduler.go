@@ -12,12 +12,14 @@ import (
 
 	"auto-attendance/internal/config"
 	"auto-attendance/internal/ethol"
+	"auto-attendance/internal/logging"
 )
 
 type Notifier interface {
 	NotifyPresenceSuccess(ctx context.Context, courseName, dosen, key string)
 	NotifyContractApproved(ctx context.Context, courseName string)
 	NotifyPresenceFailed(ctx context.Context, courseName string, err error)
+	NotifyTaskReminder(ctx context.Context, task ethol.TaskItem, stage string, remaining time.Duration)
 }
 
 type AttendedRecord struct {
@@ -48,6 +50,8 @@ type Scheduler struct {
 	courses         []ethol.Course
 	attended        map[string]time.Time
 	attendedRecords map[string]AttendedRecord
+	tasks           []ethol.TaskItem
+	sentReminders   map[string]bool
 	mu              sync.Mutex
 	dryRun          bool
 	paused          bool
@@ -132,7 +136,105 @@ func (s *Scheduler) RunOnce(ctx context.Context) error {
 	now := time.Now().In(s.loc)
 	log.Printf("scan-once: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
 	s.scanCourses(ctx, now)
+	s.updateTasks(ctx)
+	s.checkTaskReminders(ctx)
 	return nil
+}
+
+func (s *Scheduler) SetTasks(tasks []ethol.TaskItem) {
+	s.mu.Lock()
+	s.tasks = make([]ethol.TaskItem, len(tasks))
+	copy(s.tasks, tasks)
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) CheckTaskReminders(ctx context.Context) {
+	s.checkTaskReminders(ctx)
+}
+
+func (s *Scheduler) updateTasks(ctx context.Context) {
+	tasks, err := s.client.GetTasks(ctx, true)
+	if err != nil {
+		log.Printf("peringatan: gagal memuat tugas di scheduler: %v", err)
+		return
+	}
+	s.SetTasks(tasks)
+}
+
+func (s *Scheduler) checkTaskReminders(ctx context.Context) {
+	s.mu.Lock()
+	tasks := make([]ethol.TaskItem, len(s.tasks))
+	copy(tasks, s.tasks)
+	notifier := s.notifier
+	s.mu.Unlock()
+
+	if notifier == nil || len(tasks) == 0 {
+		return
+	}
+	now := time.Now().In(s.loc)
+
+	type stageDef struct {
+		name      string
+		label     string
+		threshold time.Duration
+		subsumes  []string
+	}
+
+	stages := []stageDef{
+		{name: "1h", label: "Kurang 1 Jam", threshold: 1 * time.Hour, subsumes: []string{"3h", "5h", "24h"}},
+		{name: "3h", label: "Kurang 3 Jam", threshold: 3 * time.Hour, subsumes: []string{"5h", "24h"}},
+		{name: "5h", label: "Kurang 5 Jam", threshold: 5 * time.Hour, subsumes: []string{"24h"}},
+		{name: "24h", label: "Deadline H-1", threshold: 24 * time.Hour, subsumes: nil},
+	}
+
+	for _, task := range tasks {
+		dt, ok := ethol.ParseTaskDeadline(task.Deadline)
+		if !ok {
+			continue
+		}
+		diff := dt.Sub(now)
+		if diff <= 0 {
+			continue
+		}
+
+		taskKey := fmt.Sprintf("%d:%s:%s", task.KuliahID, task.TaskTitle(), task.Deadline)
+
+		for _, st := range stages {
+			if diff <= st.threshold {
+				if !s.hasReminderBeenSent(taskKey, st.name) {
+					notifier.NotifyTaskReminder(ctx, task, st.label, diff)
+					s.markReminderSent(taskKey, st.name)
+					for _, sub := range st.subsumes {
+						s.markReminderSent(taskKey, sub)
+					}
+				}
+				break
+			}
+		}
+	}
+}
+
+func (s *Scheduler) hasReminderBeenSent(taskKey, stage string) bool {
+	if store := logging.GetGlobalStore(); store != nil {
+		if store.HasTaskReminder(taskKey, stage) {
+			return true
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sentReminders[taskKey+":"+stage]
+}
+
+func (s *Scheduler) markReminderSent(taskKey, stage string) {
+	if store := logging.GetGlobalStore(); store != nil {
+		_ = store.RecordTaskReminder(taskKey, stage)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.sentReminders == nil {
+		s.sentReminders = make(map[string]bool)
+	}
+	s.sentReminders[taskKey+":"+stage] = true
 }
 
 func New(client *ethol.Client, cfg config.Config, student ethol.Student) *Scheduler {
@@ -147,6 +249,7 @@ func New(client *ethol.Client, cfg config.Config, student ethol.Student) *Schedu
 		loc:             loc,
 		attended:        map[string]time.Time{},
 		attendedRecords: map[string]AttendedRecord{},
+		sentReminders:   map[string]bool{},
 		startTime:       time.Now().In(loc),
 	}
 }
@@ -341,6 +444,8 @@ func (s *Scheduler) tick(ctx context.Context) {
 	}
 	log.Printf("tick: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
 	s.scanCourses(ctx, now)
+	s.updateTasks(ctx)
+	s.checkTaskReminders(ctx)
 }
 
 func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {

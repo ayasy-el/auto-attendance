@@ -98,3 +98,33 @@ func TestLogStorePrune(t *testing.T) {
 		t.Fatalf("expected 1 remaining log, got %d", len(logs))
 	}
 }
+
+func TestLogStoreTaskReminders(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test_reminders.db")
+
+	store, err := newLogStore(dbPath, 7, time.Local)
+	if err != nil {
+		t.Fatalf("newLogStore failed: %v", err)
+	}
+	defer store.Close()
+
+	taskKey := "101:Tugas 1:2026-10-16 23:59:00"
+	stage := "24h"
+
+	if store.HasTaskReminder(taskKey, stage) {
+		t.Fatal("expected reminder to not exist initially")
+	}
+
+	if err := store.RecordTaskReminder(taskKey, stage); err != nil {
+		t.Fatalf("RecordTaskReminder error: %v", err)
+	}
+
+	if !store.HasTaskReminder(taskKey, stage) {
+		t.Fatal("expected reminder to exist after recording")
+	}
+
+	if store.HasTaskReminder(taskKey, "5h") {
+		t.Fatal("expected stage 5h to not exist")
+	}
+}

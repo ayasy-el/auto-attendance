@@ -4,21 +4,30 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"strings"
 	"time"
+
+	"auto-attendance/internal/ethol"
 )
 
 type Notifier struct {
-	client *Client
-	loc    *time.Location
+	client     *Client
+	loc        *time.Location
+	portalHost string
 }
 
-func NewNotifier(client *Client, loc *time.Location) *Notifier {
+func NewNotifier(client *Client, loc *time.Location, portalHost ...string) *Notifier {
 	if loc == nil {
 		loc = time.Local
 	}
+	host := ""
+	if len(portalHost) > 0 {
+		host = portalHost[0]
+	}
 	return &Notifier{
-		client: client,
-		loc:    loc,
+		client:     client,
+		loc:        loc,
+		portalHost: host,
 	}
 }
 
@@ -67,4 +76,45 @@ func (n *Notifier) NotifyPresenceFailed(ctx context.Context, courseName string, 
 		html.EscapeString(err.Error()),
 	)
 	_ = n.client.SendMessage(ctx, text, nil)
+}
+
+func (n *Notifier) NotifyTaskReminder(ctx context.Context, task ethol.TaskItem, stage string, remaining time.Duration) {
+	if n.client == nil {
+		return
+	}
+	remStr := formatRemainingDuration(remaining)
+
+	linkLine := ""
+	if task.KuliahID > 0 && n.portalHost != "" {
+		baseURL := strings.TrimRight(n.portalHost, "/")
+		link := fmt.Sprintf("%s/mahasiswa/matakuliah/%d/tugas", baseURL, task.KuliahID)
+		linkLine = fmt.Sprintf("\n🔗 <a href=%q>Buka Tugas di Portal</a>", link)
+	}
+
+	text := fmt.Sprintf("🚨 <b>PENGINGAT DEADLINE TUGAS (%s)!</b>\n\n"+
+		"📝 <b>Tugas:</b> %s\n"+
+		"📚 <b>Mata Kuliah:</b> %s\n"+
+		"⏰ <b>Deadline:</b> %s\n"+
+		"⏳ <b>Sisa Waktu:</b> %s%s",
+		html.EscapeString(stage),
+		html.EscapeString(task.TaskTitle()),
+		html.EscapeString(task.CourseName),
+		html.EscapeString(task.Deadline),
+		html.EscapeString(remStr),
+		linkLine,
+	)
+	_ = n.client.SendMessage(ctx, text, nil)
+}
+
+func formatRemainingDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h > 0 && m > 0 {
+		return fmt.Sprintf("%d jam %d menit", h, m)
+	}
+	if h > 0 {
+		return fmt.Sprintf("%d jam", h)
+	}
+	return fmt.Sprintf("%d menit", m)
 }

@@ -104,6 +104,14 @@ func newLogStore(dbPath string, retentionDays int, loc *time.Location) (*LogStor
 		message TEXT NOT NULL
 	);
 	CREATE INDEX IF NOT EXISTS idx_logs_created_at ON app_logs(created_at);
+
+	CREATE TABLE IF NOT EXISTS task_reminders (
+		task_key TEXT NOT NULL,
+		stage TEXT NOT NULL,
+		sent_at INTEGER NOT NULL,
+		PRIMARY KEY (task_key, stage)
+	);
+	CREATE INDEX IF NOT EXISTS idx_task_reminders_sent_at ON task_reminders(sent_at);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
@@ -177,11 +185,38 @@ func (s *LogStore) Prune(ctx context.Context) (int64, error) {
 	}
 
 	cutoff := time.Now().AddDate(0, 0, -s.retentionDays).Unix()
+	_, _ = s.db.ExecContext(ctx, "DELETE FROM task_reminders WHERE sent_at < ?", cutoff)
 	res, err := s.db.ExecContext(ctx, "DELETE FROM app_logs WHERE created_at < ?", cutoff)
 	if err != nil {
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// HasTaskReminder checks whether a reminder for (taskKey, stage) has already been sent.
+func (s *LogStore) HasTaskReminder(taskKey, stage string) bool {
+	if s == nil || s.db == nil {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var exists int
+	err := s.db.QueryRow("SELECT 1 FROM task_reminders WHERE task_key = ? AND stage = ?", taskKey, stage).Scan(&exists)
+	return err == nil && exists == 1
+}
+
+// RecordTaskReminder stores a sent reminder for (taskKey, stage).
+func (s *LogStore) RecordTaskReminder(taskKey, stage string) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.Exec("INSERT OR REPLACE INTO task_reminders (task_key, stage, sent_at) VALUES (?, ?, ?)",
+		taskKey, stage, time.Now().Unix())
+	return err
 }
 
 // GetRecentLogs returns the last n log lines formatted with timestamps.

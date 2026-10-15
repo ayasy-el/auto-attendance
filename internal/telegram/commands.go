@@ -311,9 +311,15 @@ func (h *CommandHandler) jadwal(ctx context.Context) string {
 }
 
 func (h *CommandHandler) tugas(ctx context.Context) string {
-	tasks, err := h.client.GetTasks(ctx)
+	// Fetch live without cache as requested
+	tasks, err := h.client.GetTasks(ctx, true)
 	if err != nil {
 		return fmt.Sprintf("❌ <b>Gagal Mengambil Tugas:</b> %s", html.EscapeString(err.Error()))
+	}
+
+	if h.scheduler != nil {
+		h.scheduler.SetTasks(tasks)
+		h.scheduler.CheckTaskReminders(ctx)
 	}
 
 	if len(tasks) == 0 {
