@@ -17,11 +17,19 @@ import (
 	"auto-attendance/internal/telegram"
 )
 
+var Version = "dev"
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "path to YAML configuration")
 	once := flag.Bool("once", false, "jalankan satu kali pemeriksaan presensi lalu keluar")
 	dryRun := flag.Bool("dry-run", false, "mode simulasi, cek presensi tanpa melakukan submit")
+	versionFlag := flag.Bool("version", false, "tampilkan versi aplikasi lalu keluar")
 	flag.Parse()
+
+	if *versionFlag {
+		log.Printf("auto-attendance %s\n", Version)
+		return
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -47,6 +55,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("auto-attendance %s dimulai", Version)
 	log.Printf("login berhasil untuk %s (%d)", student.Name, student.Number)
 
 	app := scheduler.New(client, cfg, student)
@@ -58,7 +67,7 @@ func main() {
 	// Initialize Telegram Bot & Notifier if configured
 	if cfg.Telegram.Token != "" && cfg.Telegram.ChatID != "" {
 		loc, _ := time.LoadLocation(cfg.Timezone)
-		bot := telegram.NewBot(cfg.Telegram.Token, cfg.Telegram.ChatID, client, app, student, loc)
+		bot := telegram.NewBot(cfg.Telegram.Token, cfg.Telegram.ChatID, client, app, student, loc, Version)
 		if bot != nil {
 			notifier := telegram.NewNotifier(bot.Client(), loc)
 			app.SetNotifier(notifier)

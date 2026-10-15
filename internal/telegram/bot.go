@@ -18,13 +18,13 @@ type Bot struct {
 	chatID  string
 }
 
-func NewBot(token, chatID string, etholClient *ethol.Client, sched *scheduler.Scheduler, student ethol.Student, loc *time.Location) *Bot {
+func NewBot(token, chatID string, etholClient *ethol.Client, sched *scheduler.Scheduler, student ethol.Student, loc *time.Location, version string) *Bot {
 	if token == "" || chatID == "" {
 		return nil
 	}
 
 	tgClient := NewClient(token, chatID)
-	cmdHandler := NewCommandHandler(etholClient, sched, student, loc)
+	cmdHandler := NewCommandHandler(etholClient, sched, student, loc, version)
 
 	return &Bot{
 		client:  tgClient,

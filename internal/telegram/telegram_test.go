@@ -86,7 +86,7 @@ func TestCommandHandler_BasicCommands(t *testing.T) {
 	student := ethol.Student{Number: 12345, Name: "Budi Santoso"}
 	sched := scheduler.New(etholClient, cfg, student)
 
-	handler := NewCommandHandler(etholClient, sched, student, loc)
+	handler := NewCommandHandler(etholClient, sched, student, loc, "v2.0.0")
 
 	// Test /help
 	helpResp := handler.Handle(ctx, "/help")
@@ -158,7 +158,7 @@ func TestBot_ProcessUpdate_SecurityFilter(t *testing.T) {
 	student := ethol.Student{Number: 12345, Name: "Tester"}
 	sched := scheduler.New(etholClient, cfg, student)
 
-	bot := NewBot("TOKEN", "99999", etholClient, sched, student, loc)
+	bot := NewBot("TOKEN", "99999", etholClient, sched, student, loc, "v2.0.0")
 	bot.client.baseURL = server.URL
 
 	// 1. Update from unauthorized chat_id (e.g. 11111 != 99999) -> must be IGNORED

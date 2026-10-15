@@ -3,6 +3,7 @@ FROM --platform=$BUILDPLATFORM golang:alpine AS builder
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=""
 
 WORKDIR /src
 
@@ -10,7 +11,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -trimpath -ldflags="-s -w" -o /out/auto-attendance ./cmd/attendance
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
+    -trimpath \
+    -ldflags="-s -w ${VERSION:+-X main.Version=$VERSION}" \
+    -o /out/auto-attendance ./cmd/attendance
 
 # Runtime stage
 FROM alpine:3.22

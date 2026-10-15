@@ -18,9 +18,10 @@ type CommandHandler struct {
 	scheduler *scheduler.Scheduler
 	student   ethol.Student
 	loc       *time.Location
+	version   string
 }
 
-func NewCommandHandler(client *ethol.Client, sched *scheduler.Scheduler, student ethol.Student, loc *time.Location) *CommandHandler {
+func NewCommandHandler(client *ethol.Client, sched *scheduler.Scheduler, student ethol.Student, loc *time.Location, version string) *CommandHandler {
 	if loc == nil {
 		loc = time.Local
 	}
@@ -29,6 +30,7 @@ func NewCommandHandler(client *ethol.Client, sched *scheduler.Scheduler, student
 		scheduler: sched,
 		student:   student,
 		loc:       loc,
+		version:   version,
 	}
 }
 
@@ -160,13 +162,20 @@ func (h *CommandHandler) status() string {
 		lastTickStr = st.LastTick.Format("15:04:05 MST")
 	}
 
+	verStr := h.version
+	if verStr == "" {
+		verStr = "dev"
+	}
+
 	return fmt.Sprintf("ℹ️ <b>STATUS SISTEM</b>\n\n"+
 		"👤 <b>Mahasiswa:</b> %s (%d)\n"+
+		"🏷️ <b>Versi:</b> <code>%s</code>\n"+
 		"⚙️ <b>Mode:</b> <code>%s</code>\n"+
 		"📚 <b>Mata Kuliah:</b> %d dipantau\n"+
 		"🕒 <b>Tick Terakhir:</b> %s\n"+
 		"⏳ <b>Uptime:</b> %s",
 		html.EscapeString(st.Student.Name), st.Student.Number,
+		html.EscapeString(verStr),
 		html.EscapeString(modeStr),
 		st.Courses,
 		lastTickStr,

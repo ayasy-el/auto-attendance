@@ -60,8 +60,11 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
+            type=ref,event=tag
             type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern=v{{major}}.{{minor}}
             type=raw,value=latest
             type=sha,prefix=
 
@@ -73,5 +76,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
