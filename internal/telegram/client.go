@@ -144,10 +144,11 @@ func (c *Client) RemoveReplyMarkup(ctx context.Context, chatID string, messageID
 		return nil
 	}
 
+	// In Telegram Bot API, omitting reply_markup completely clears the inline keyboard.
+	// Passing an empty array or empty inline_keyboard can trigger 400 Bad Request.
 	payload := map[string]any{
-		"chat_id":      chatID,
-		"message_id":   messageID,
-		"reply_markup": map[string]any{"inline_keyboard": [][]any{}},
+		"chat_id":    chatID,
+		"message_id": messageID,
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -166,7 +167,18 @@ func (c *Client) RemoveReplyMarkup(ctx context.Context, chatID string, messageID
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if resp.StatusCode != http.StatusOK {
+		errStr := strings.TrimSpace(string(body))
+		// Ignore harmless errors if message was already modified, deleted, or missing text
+		if strings.Contains(errStr, "message is not modified") ||
+			strings.Contains(errStr, "message to edit not found") ||
+			strings.Contains(errStr, "there is no text in the message to edit") {
+			return nil
+		}
+		return fmt.Errorf("editMessageReplyMarkup HTTP %d: %s", resp.StatusCode, errStr)
+	}
 	return nil
 }
 

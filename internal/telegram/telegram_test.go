@@ -315,8 +315,8 @@ func TestBot_ButtonsOnlyOnLatestMessage(t *testing.T) {
 	if removeMarkupCount.Load() != 0 {
 		t.Fatalf("first message should not remove markup from non-existent previous message")
 	}
-	if bot.lastKeyboardMsgID != 1 {
-		t.Fatalf("expected lastKeyboardMsgID = 1, got %d", bot.lastKeyboardMsgID)
+	if _, ok := bot.activeKeyboardIDs[1]; !ok {
+		t.Fatalf("expected activeKeyboardIDs to contain 1, got %+v", bot.activeKeyboardIDs)
 	}
 
 	// Second message: should remove markup from message 1 and record message 2
@@ -331,7 +331,34 @@ func TestBot_ButtonsOnlyOnLatestMessage(t *testing.T) {
 	if lastRemovedMsgID.Load() != 1 {
 		t.Fatalf("expected removeMarkup called on message_id 1, got %d", lastRemovedMsgID.Load())
 	}
-	if bot.lastKeyboardMsgID != 2 {
-		t.Fatalf("expected lastKeyboardMsgID = 2, got %d", bot.lastKeyboardMsgID)
+	if _, ok := bot.activeKeyboardIDs[2]; !ok {
+		t.Fatalf("expected activeKeyboardIDs to contain 2, got %+v", bot.activeKeyboardIDs)
+	}
+
+	// Third message via button click on message 2: should immediately remove markup on 2 and record message 3
+	cbUpdate := Update{
+		UpdateID: 10,
+		CallbackQuery: &CallbackQuery{
+			ID: "cb10",
+			Message: &Message{
+				MessageID: 2,
+				Chat:      Chat{ID: 99999},
+			},
+			Data: "/status",
+		},
+	}
+	bot.processUpdate(ctx, cbUpdate)
+
+	if sentCount.Load() != 3 {
+		t.Fatalf("expected 3 sent messages, got %d", sentCount.Load())
+	}
+	if removeMarkupCount.Load() < 2 {
+		t.Fatalf("expected at least 2 removeMarkup calls, got %d", removeMarkupCount.Load())
+	}
+	if lastRemovedMsgID.Load() != 2 {
+		t.Fatalf("expected removeMarkup called on message_id 2, got %d", lastRemovedMsgID.Load())
+	}
+	if _, ok := bot.activeKeyboardIDs[3]; !ok {
+		t.Fatalf("expected activeKeyboardIDs to contain 3, got %+v", bot.activeKeyboardIDs)
 	}
 }

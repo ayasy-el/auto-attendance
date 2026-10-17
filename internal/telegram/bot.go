@@ -18,7 +18,7 @@ type Bot struct {
 	handler           *CommandHandler
 	chatID            string
 	keyboardMu        sync.Mutex
-	lastKeyboardMsgID int64
+	activeKeyboardIDs map[int64]struct{}
 }
 
 func NewBot(token, chatID string, etholClient *ethol.Client, sched *scheduler.Scheduler, student ethol.Student, loc *time.Location, version string) *Bot {
@@ -30,9 +30,10 @@ func NewBot(token, chatID string, etholClient *ethol.Client, sched *scheduler.Sc
 	cmdHandler := NewCommandHandler(etholClient, sched, student, loc, version)
 
 	return &Bot{
-		client:  tgClient,
-		handler: cmdHandler,
-		chatID:  strings.TrimSpace(chatID),
+		client:            tgClient,
+		handler:           cmdHandler,
+		chatID:            strings.TrimSpace(chatID),
+		activeKeyboardIDs: make(map[int64]struct{}),
 	}
 }
 
@@ -59,23 +60,59 @@ func (b *Bot) Start(ctx context.Context) {
 	go b.pollLoop(ctx)
 }
 
-func (b *Bot) sendReplyWithKeyboard(ctx context.Context, text string, keyboard any) {
+func (b *Bot) sendReplyWithKeyboard(ctx context.Context, text string, keyboard any, additionalMsgIDs ...int64) {
 	b.keyboardMu.Lock()
 	defer b.keyboardMu.Unlock()
 
-	// Remove keyboard from previous message so only the latest reply retains the buttons
-	if b.lastKeyboardMsgID > 0 {
-		_ = b.client.RemoveReplyMarkup(ctx, b.chatID, b.lastKeyboardMsgID)
+	// Remove keyboard from all previous active messages
+	for mid := range b.activeKeyboardIDs {
+		_ = b.client.RemoveReplyMarkup(ctx, b.chatID, mid)
+		delete(b.activeKeyboardIDs, mid)
+	}
+	for _, mid := range additionalMsgIDs {
+		if mid > 0 {
+			_ = b.client.RemoveReplyMarkup(ctx, b.chatID, mid)
+			delete(b.activeKeyboardIDs, mid)
+		}
 	}
 
-	msgID, err := b.client.SendMessageID(ctx, text, keyboard)
+	chunks := splitTelegramMessage(text, 3800)
+	if len(chunks) == 0 {
+		return
+	}
+
+	for i := 0; i < len(chunks)-1; i++ {
+		_ = b.client.SendMessageToChat(ctx, b.chatID, chunks[i], nil)
+	}
+
+	lastMsgID, err := b.client.SendMessageID(ctx, chunks[len(chunks)-1], keyboard)
 	if err != nil {
 		log.Printf("telegram: gagal mengirim pesan: %v", err)
 		return
 	}
-	if msgID > 0 {
-		b.lastKeyboardMsgID = msgID
+	if lastMsgID > 0 {
+		b.activeKeyboardIDs[lastMsgID] = struct{}{}
 	}
+}
+
+func splitTelegramMessage(text string, maxLen int) []string {
+	if len(text) <= maxLen {
+		return []string{text}
+	}
+	var chunks []string
+	remaining := text
+	for len(remaining) > maxLen {
+		splitIdx := strings.LastIndex(remaining[:maxLen], "\n")
+		if splitIdx <= 0 {
+			splitIdx = maxLen
+		}
+		chunks = append(chunks, remaining[:splitIdx])
+		remaining = strings.TrimPrefix(remaining[splitIdx:], "\n")
+	}
+	if len(remaining) > 0 {
+		chunks = append(chunks, remaining)
+	}
+	return chunks
 }
 
 func (b *Bot) pollLoop(ctx context.Context) {
@@ -137,14 +174,21 @@ func (b *Bot) processUpdate(ctx context.Context, u Update) {
 			return
 		}
 
+		clickedMsgID := u.CallbackQuery.Message.MessageID
+
 		// Instantly clear button loading wheel and show typing indicator in chat
 		_ = b.client.AnswerCallbackQuery(ctx, u.CallbackQuery.ID)
 		_ = b.client.SendChatAction(ctx, "typing")
 
+		// Remove markup from the clicked message immediately so it cannot be double-clicked
+		if clickedMsgID > 0 {
+			_ = b.client.RemoveReplyMarkup(ctx, b.chatID, clickedMsgID)
+		}
+
 		if u.CallbackQuery.Data != "" {
 			resp := b.handler.Handle(ctx, u.CallbackQuery.Data)
 			if resp != "" {
-				b.sendReplyWithKeyboard(ctx, resp, keyboard)
+				b.sendReplyWithKeyboard(ctx, resp, keyboard, clickedMsgID)
 			}
 		}
 	}
