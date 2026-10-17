@@ -231,19 +231,53 @@ func (h *CommandHandler) logs(ctx context.Context, n int) string {
 		return fmt.Sprintf("❌ <b>Gagal Membaca Log:</b> %s", html.EscapeString(err.Error()))
 	}
 
+	return formatLogsMessage(lines, n)
+}
+
+func formatLogsMessage(lines []string, requested int) string {
 	if len(lines) == 0 {
-		return fmt.Sprintf("📜 <b>LOG TERAKHIR (%d baris)</b>\n\n(Belum ada catatan log)", n)
+		return fmt.Sprintf("📜 <b>LOG TERAKHIR (%d baris)</b>\n\n(Belum ada catatan log)", requested)
 	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("📜 <b>LOG TERAKHIR (%d baris):</b>\n<pre>", len(lines)))
+	const maxMsgLen = 3800
+	header := fmt.Sprintf("📜 <b>LOG TERAKHIR (%d baris):</b>\n<pre>", len(lines))
+	footer := "</pre>"
+
+	var escapedLines []string
 	for _, l := range lines {
-		sb.WriteString(html.EscapeString(l))
-		sb.WriteString("\n")
+		escapedLines = append(escapedLines, html.EscapeString(l))
 	}
-	sb.WriteString("</pre>")
 
-	return sb.String()
+	fullText := header + strings.Join(escapedLines, "\n") + "\n" + footer
+	if len(fullText) <= maxMsgLen {
+		return fullText
+	}
+
+	// Truncate older lines, retaining the newest ones to stay under maxMsgLen (3800 chars)
+	notice := "... [baris lama terpotong agar muat di Telegram]\n"
+	budget := maxMsgLen - len(header) - len(footer) - len(notice)
+
+	var selected []string
+	used := 0
+	for i := len(escapedLines) - 1; i >= 0; i-- {
+		line := escapedLines[i]
+		cost := len(line) + 1 // + newline
+		if used+cost > budget {
+			if len(selected) == 0 && budget > 30 {
+				selected = append(selected, line[:budget-3]+"...")
+			}
+			break
+		}
+		selected = append(selected, line)
+		used += cost
+	}
+
+	// Reverse back to chronological order (oldest to newest)
+	for i, j := 0, len(selected)-1; i < j; i, j = i+1, j-1 {
+		selected[i], selected[j] = selected[j], selected[i]
+	}
+
+	return header + notice + strings.Join(selected, "\n") + "\n" + footer
 }
 
 func (h *CommandHandler) today() string {

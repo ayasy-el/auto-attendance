@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"auto-attendance/internal/config"
 )
@@ -189,5 +190,82 @@ func TestRequestRefreshesTokenBeforeRelogin(t *testing.T) {
 	}
 	if c.Token() != "token-refreshed" {
 		t.Fatalf("token=%q, want token-refreshed", c.Token())
+	}
+}
+
+func TestConcurrentReauthSingleflight(t *testing.T) {
+	var logins atomic.Int32
+	var refreshCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cas/login":
+			if r.Method == http.MethodGet {
+				fmt.Fprint(w, `<input name="lt" value="lt">`)
+				return
+			}
+			logins.Add(1)
+			w.Header().Set("Location", "/api/auth/cas-callback?ticket=t")
+			w.WriteHeader(http.StatusFound)
+		case "/api/auth/cas-callback":
+			http.SetCookie(w, &http.Cookie{Name: "token", Value: "token-new", Path: "/"})
+			http.SetCookie(w, &http.Cookie{Name: "refresh_token", Value: "refresh-new", Path: "/"})
+			w.WriteHeader(http.StatusFound)
+		case "/api/auth/validasi-token":
+			fmt.Fprint(w, `{"nomor":1,"nama":"Tester"}`)
+		case "/api/auth/config":
+			fmt.Fprint(w, `{"tahun_aktif":2026,"semester_aktif":1}`)
+		case "/api/auth/refresh":
+			refreshCalls.Add(1)
+			time.Sleep(30 * time.Millisecond) // Simulate network delay
+			http.SetCookie(w, &http.Cookie{Name: "token", Value: "token-renewed", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+		case "/api/kuliah":
+			token := r.Header.Get("Authorization")
+			if token == "Bearer token-init" {
+				w.WriteHeader(http.StatusUnauthorized)
+				fmt.Fprint(w, `{"sukses":false,"pesan":"Anda belum melakukan Login"}`)
+				return
+			}
+			if token == "Bearer token-renewed" {
+				w.WriteHeader(http.StatusOK)
+				fmt.Fprint(w, `[{"nomor":1,"jenisSchema":4,"matakuliah":{"nama":"Jaringan"}}]`)
+				return
+			}
+			http.Error(w, "invalid token", http.StatusBadRequest)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	c, _ := New(testConfig(server.URL))
+	c.setToken("token-init")
+	c.setRefreshToken("refresh-init")
+
+	// Trigger 5 concurrent requests with expired token
+	const concurrency = 5
+	errCh := make(chan error, concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			_, err := c.Courses(context.Background())
+			errCh <- err
+		}()
+	}
+
+	for i := 0; i < concurrency; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatalf("concurrent request failed: %v", err)
+		}
+	}
+
+	// Singleflight mutex must ensure refresh is called only ONCE despite 5 concurrent 401s
+	if calls := refreshCalls.Load(); calls != 1 {
+		t.Fatalf("expected exactly 1 refresh call, got %d", calls)
+	}
+	if l := logins.Load(); l != 0 {
+		t.Fatalf("expected 0 login calls, got %d", l)
+	}
+	if c.Token() != "token-renewed" {
+		t.Fatalf("expected token-renewed, got %q", c.Token())
 	}
 }

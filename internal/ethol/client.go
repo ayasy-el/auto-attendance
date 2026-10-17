@@ -17,6 +17,7 @@ type Client struct {
 	refreshTokenMu sync.RWMutex
 	refreshToken   string
 	loginMu        sync.Mutex
+	reauthMu       sync.Mutex
 	periodMu       sync.RWMutex
 	activeYear     int
 	activeSemester int

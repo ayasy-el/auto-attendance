@@ -152,6 +152,10 @@ func TestBot_ProcessUpdate_SecurityFilter(t *testing.T) {
 			fmt.Fprint(w, `{"ok":true,"result":{"message_id":1}}`)
 		case "/botTOKEN/answerCallbackQuery":
 			fmt.Fprint(w, `{"ok":true,"result":true}`)
+		case "/botTOKEN/sendChatAction":
+			fmt.Fprint(w, `{"ok":true,"result":true}`)
+		case "/botTOKEN/editMessageReplyMarkup":
+			fmt.Fprint(w, `{"ok":true,"result":true}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -236,5 +240,98 @@ func TestNotifier_NotifyTaskReminder(t *testing.T) {
 	}
 	if !strings.Contains(sentText, "https://ethol.pens.ac.id/mahasiswa/matakuliah/221585/tugas") {
 		t.Fatalf("expected portal link in text, got: %s", sentText)
+	}
+}
+
+func TestCommandHandler_LogsTruncation(t *testing.T) {
+	// Create 50 lines directly in memory to test formatLogsMessage (> 6000 chars)
+	longMsg := strings.Repeat("A", 120)
+	var lines []string
+	for i := 1; i <= 50; i++ {
+		lines = append(lines, fmt.Sprintf("[2026-10-15 12:00:00 WIB] line %d %s", i, longMsg))
+	}
+
+	formatted := formatLogsMessage(lines, 50)
+	if len(formatted) > 3800 {
+		t.Fatalf("expected message length <= 3800, got %d", len(formatted))
+	}
+	if !strings.Contains(formatted, "baris lama terpotong") {
+		t.Fatalf("expected truncation notice in output")
+	}
+	if !strings.HasPrefix(formatted, "📜 <b>LOG TERAKHIR") {
+		t.Fatalf("expected valid header in output")
+	}
+	if !strings.HasSuffix(formatted, "</pre>") {
+		t.Fatalf("expected valid closing pre tag in output")
+	}
+}
+
+func TestBot_ButtonsOnlyOnLatestMessage(t *testing.T) {
+	var sentCount atomic.Int32
+	var removeMarkupCount atomic.Int32
+	var lastRemovedMsgID atomic.Int64
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/botTOKEN/sendMessage":
+			id := sentCount.Add(1)
+			fmt.Fprintf(w, `{"ok":true,"result":{"message_id":%d}}`, id)
+		case "/botTOKEN/editMessageReplyMarkup":
+			removeMarkupCount.Add(1)
+			var payload map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			if mid, ok := payload["message_id"].(float64); ok {
+				lastRemovedMsgID.Store(int64(mid))
+			}
+			fmt.Fprint(w, `{"ok":true,"result":true}`)
+		case "/botTOKEN/deleteWebhook":
+			fmt.Fprint(w, `{"ok":true,"result":true}`)
+		case "/botTOKEN/sendChatAction":
+			fmt.Fprint(w, `{"ok":true,"result":true}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	ctx := context.Background()
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	cfg := config.Config{Host: "http://localhost", CASHost: "http://localhost", Username: "u", Password: "p"}
+	etholClient, _ := ethol.New(cfg)
+	student := ethol.Student{Number: 12345, Name: "Tester"}
+	sched := scheduler.New(etholClient, cfg, student)
+
+	bot := NewBot("TOKEN", "99999", etholClient, sched, student, loc, "v2.0.0")
+	bot.client.baseURL = server.URL
+
+	// First message: send welcome greeting
+	keyboard := DefaultKeyboard()
+	bot.sendReplyWithKeyboard(ctx, "Welcome 1", keyboard)
+
+	if sentCount.Load() != 1 {
+		t.Fatalf("expected 1 sent message, got %d", sentCount.Load())
+	}
+	if removeMarkupCount.Load() != 0 {
+		t.Fatalf("first message should not remove markup from non-existent previous message")
+	}
+	if bot.lastKeyboardMsgID != 1 {
+		t.Fatalf("expected lastKeyboardMsgID = 1, got %d", bot.lastKeyboardMsgID)
+	}
+
+	// Second message: should remove markup from message 1 and record message 2
+	bot.sendReplyWithKeyboard(ctx, "Status reply 2", keyboard)
+
+	if sentCount.Load() != 2 {
+		t.Fatalf("expected 2 sent messages, got %d", sentCount.Load())
+	}
+	if removeMarkupCount.Load() != 1 {
+		t.Fatalf("expected 1 removeMarkup call, got %d", removeMarkupCount.Load())
+	}
+	if lastRemovedMsgID.Load() != 1 {
+		t.Fatalf("expected removeMarkup called on message_id 1, got %d", lastRemovedMsgID.Load())
+	}
+	if bot.lastKeyboardMsgID != 2 {
+		t.Fatalf("expected lastKeyboardMsgID = 2, got %d", bot.lastKeyboardMsgID)
 	}
 }

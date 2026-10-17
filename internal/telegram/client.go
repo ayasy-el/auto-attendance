@@ -74,13 +74,30 @@ func NewClient(token, chatID string) *Client {
 	}
 }
 
+type sendResponse struct {
+	OK     bool `json:"ok"`
+	Result *struct {
+		MessageID int64 `json:"message_id"`
+	} `json:"result"`
+}
+
 func (c *Client) SendMessage(ctx context.Context, text string, markup any) error {
-	return c.SendMessageToChat(ctx, c.chatID, text, markup)
+	_, err := c.SendMessageID(ctx, text, markup)
+	return err
+}
+
+func (c *Client) SendMessageID(ctx context.Context, text string, markup any) (int64, error) {
+	return c.SendMessageToChatID(ctx, c.chatID, text, markup)
 }
 
 func (c *Client) SendMessageToChat(ctx context.Context, chatID, text string, markup any) error {
+	_, err := c.SendMessageToChatID(ctx, chatID, text, markup)
+	return err
+}
+
+func (c *Client) SendMessageToChatID(ctx context.Context, chatID, text string, markup any) (int64, error) {
 	if c.token == "" || chatID == "" {
-		return nil
+		return 0, nil
 	}
 
 	payload := map[string]any{
@@ -94,10 +111,50 @@ func (c *Client) SendMessageToChat(ctx context.Context, chatID, text string, mar
 
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	endpoint := fmt.Sprintf("%s/bot%s/sendMessage", c.baseURL, c.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("telegram sendMessage HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var sr sendResponse
+	if err := json.Unmarshal(body, &sr); err == nil && sr.Result != nil {
+		return sr.Result.MessageID, nil
+	}
+	return 0, nil
+}
+
+func (c *Client) RemoveReplyMarkup(ctx context.Context, chatID string, messageID int64) error {
+	if c.token == "" || chatID == "" || messageID <= 0 {
+		return nil
+	}
+
+	payload := map[string]any{
+		"chat_id":      chatID,
+		"message_id":   messageID,
+		"reply_markup": map[string]any{"inline_keyboard": [][]any{}},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("%s/bot%s/editMessageReplyMarkup", c.baseURL, c.token)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -109,11 +166,7 @@ func (c *Client) SendMessageToChat(ctx context.Context, chatID, text string, mar
 		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("telegram sendMessage HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
 	return nil
 }
 

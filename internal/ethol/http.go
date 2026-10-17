@@ -14,6 +14,7 @@ import (
 )
 
 func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out any) error {
+	failedToken := c.Token()
 	err := c.getJSONNoRelogin(ctx, path, query, out)
 	if !errors.Is(err, errUnauthorized) && !errors.Is(err, errNotLoggedIn) {
 		return err
@@ -21,13 +22,8 @@ func (c *Client) getJSON(ctx context.Context, path string, query url.Values, out
 	if isAuthPath(path) {
 		return err
 	}
-	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
-		return c.getJSONNoRelogin(ctx, path, query, out)
-	} else {
-		log.Printf("refresh token gagal, mencoba login ulang: %v", refreshErr)
-	}
-	if _, loginErr := c.Login(ctx); loginErr != nil {
-		return fmt.Errorf("login ulang: %w", loginErr)
+	if reauthErr := c.ensureReauth(ctx, failedToken); reauthErr != nil {
+		return reauthErr
 	}
 	return c.getJSONNoRelogin(ctx, path, query, out)
 }
@@ -40,6 +36,7 @@ func (c *Client) getJSONNoRelogin(ctx context.Context, path string, query url.Va
 	return decode(resp, body, err, out)
 }
 func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
+	failedToken := c.Token()
 	err := c.postJSONNoRelogin(ctx, path, in, out)
 	if !errors.Is(err, errUnauthorized) && !errors.Is(err, errNotLoggedIn) {
 		return err
@@ -47,13 +44,8 @@ func (c *Client) postJSON(ctx context.Context, path string, in, out any) error {
 	if isAuthPath(path) {
 		return err
 	}
-	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
-		return c.postJSONNoRelogin(ctx, path, in, out)
-	} else {
-		log.Printf("refresh token gagal, mencoba login ulang: %v", refreshErr)
-	}
-	if _, loginErr := c.Login(ctx); loginErr != nil {
-		return fmt.Errorf("login ulang: %w", loginErr)
+	if reauthErr := c.ensureReauth(ctx, failedToken); reauthErr != nil {
+		return reauthErr
 	}
 	return c.postJSONNoRelogin(ctx, path, in, out)
 }
@@ -66,6 +58,7 @@ func (c *Client) postJSONNoRelogin(ctx context.Context, path string, in, out any
 	return decode(resp, body, err, out)
 }
 func (c *Client) putJSON(ctx context.Context, path string, in, out any) error {
+	failedToken := c.Token()
 	err := c.putJSONNoRelogin(ctx, path, in, out)
 	if !errors.Is(err, errUnauthorized) && !errors.Is(err, errNotLoggedIn) {
 		return err
@@ -73,13 +66,8 @@ func (c *Client) putJSON(ctx context.Context, path string, in, out any) error {
 	if isAuthPath(path) {
 		return err
 	}
-	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
-		return c.putJSONNoRelogin(ctx, path, in, out)
-	} else {
-		log.Printf("refresh token gagal, mencoba login ulang: %v", refreshErr)
-	}
-	if _, loginErr := c.Login(ctx); loginErr != nil {
-		return fmt.Errorf("login ulang: %w", loginErr)
+	if reauthErr := c.ensureReauth(ctx, failedToken); reauthErr != nil {
+		return reauthErr
 	}
 	return c.putJSONNoRelogin(ctx, path, in, out)
 }
@@ -90,6 +78,28 @@ func (c *Client) putJSONNoRelogin(ctx context.Context, path string, in, out any)
 	}
 	resp, body, err := c.request(ctx, http.MethodPut, strings.TrimRight(c.cfg.Host, "/")+path, strings.NewReader(string(b)), "application/json")
 	return decode(resp, body, err, out)
+}
+
+func (c *Client) ensureReauth(ctx context.Context, failedToken string) error {
+	c.reauthMu.Lock()
+	defer c.reauthMu.Unlock()
+
+	// If another goroutine has already renewed the token since this request failed, reuse it immediately.
+	currentToken := c.Token()
+	if currentToken != "" && currentToken != failedToken {
+		return nil
+	}
+
+	if refreshErr := c.refreshAccessToken(ctx); refreshErr == nil {
+		return nil
+	} else {
+		log.Printf("refresh token gagal, mencoba login ulang: %v", refreshErr)
+	}
+
+	if _, loginErr := c.Login(ctx); loginErr != nil {
+		return fmt.Errorf("login ulang: %w", loginErr)
+	}
+	return nil
 }
 
 func isAuthPath(path string) bool {
