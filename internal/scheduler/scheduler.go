@@ -158,6 +158,23 @@ func (s *Scheduler) CheckTaskReminders(ctx context.Context) {
 	s.checkTaskReminders(ctx)
 }
 
+func (s *Scheduler) runReminderLoop(ctx context.Context) {
+	// Initial evaluation right away on start
+	s.checkTaskReminders(ctx)
+
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.checkTaskReminders(ctx)
+		}
+	}
+}
+
 func (s *Scheduler) updateTasks(ctx context.Context) {
 	tasks, err := s.client.GetTasks(ctx, true)
 	if err != nil {
@@ -263,6 +280,10 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	if err := s.refresh(ctx); err != nil {
 		log.Printf("peringatan: gagal memuat jadwal: %v", err)
 	}
+
+	// Start independent 24/7 task deadline reminder evaluator in background (evaluates memory state, zero network overhead)
+	go s.runReminderLoop(ctx)
+
 	refresh, _ := time.ParseDuration(s.cfg.Schedule.RefreshScheduleInterval)
 	nextRefresh := time.Now().Add(refresh)
 	if s.cfg.Schedule.RunImmediately {
@@ -314,6 +335,7 @@ func (s *Scheduler) refresh(ctx context.Context) error {
 	s.schedules = schedules
 	s.courses = courses
 	log.Printf("jadwal dimuat: %d kuliah, %d slot jadwal", len(courses), len(schedules))
+	s.updateTasks(ctx)
 	return nil
 }
 func (s *Scheduler) interval() time.Duration {
