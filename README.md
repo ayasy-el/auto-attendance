@@ -153,6 +153,7 @@ schedule:
 http:
   timeout: "30s"
   max_response_body: "10MB"
+  insecure_skip_verify: true # Ignore expired/untrusted campus TLS certs
   user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
 
 logging:
@@ -176,6 +177,7 @@ telegram:
 | `schedule.refresh_schedule_interval` | duration | `24h` | Schedule reload interval |
 | `http.timeout` | duration | `30s` | HTTP request timeout |
 | `http.max_response_body` | string | `10MB` | Maximum response buffer limit |
+| `http.insecure_skip_verify` | bool | `false` | Ignore expired or untrusted SSL/TLS certificates |
 | `logging.retention_days` | int | `7` | Number of days to retain logs in SQLite (0 = forever) |
 | `telegram.token` | string | - | Bot token from [@BotFather](https://t.me/BotFather) |
 | `telegram.chat_id` | string | - | Authorized Telegram Chat ID (user or group ID) |

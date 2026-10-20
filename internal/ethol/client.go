@@ -1,6 +1,7 @@
 package ethol
 
 import (
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"sync"
@@ -36,11 +37,21 @@ func (c *Client) Config() config.Config {
 
 func New(cfg config.Config) (*Client, error) {
 	timeout, _ := time.ParseDuration(cfg.HTTP.Timeout)
+	var transport http.RoundTripper
+	if cfg.HTTP.InsecureSkipVerify {
+		baseTransport := http.DefaultTransport.(*http.Transport).Clone()
+		if baseTransport.TLSClientConfig == nil {
+			baseTransport.TLSClientConfig = &tls.Config{}
+		}
+		baseTransport.TLSClientConfig.InsecureSkipVerify = true
+		transport = baseTransport
+	}
 	return &Client{cfg: cfg, http: &http.Client{
 		// Authentication is sent explicitly with the token headers. No
 		// cookie jar is used or persisted.
-		Jar:     nil,
-		Timeout: timeout,
+		Jar:           nil,
+		Timeout:       timeout,
+		Transport:     transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},

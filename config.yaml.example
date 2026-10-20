@@ -17,6 +17,7 @@ schedule:
 http:
   timeout: "30s"
   max_response_body: "10MB"
+  insecure_skip_verify: true
   user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36"
 
 logging:

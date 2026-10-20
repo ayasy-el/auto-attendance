@@ -81,10 +81,11 @@ func (r IntervalRange) RandomDuration() (time.Duration, error) {
 }
 
 type HTTPConfig struct {
-	Timeout          string `yaml:"timeout"`
-	UserAgent        string `yaml:"user_agent"`
-	MaxResponseBody  string `yaml:"max_response_body"`
-	MaxResponseBytes int64  `yaml:"-"`
+	Timeout            string `yaml:"timeout"`
+	UserAgent          string `yaml:"user_agent"`
+	MaxResponseBody    string `yaml:"max_response_body"`
+	MaxResponseBytes   int64  `yaml:"-"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 }
 
 func Load(path string) (Config, error) {

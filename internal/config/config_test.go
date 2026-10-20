@@ -61,6 +61,21 @@ func TestLoadAllowsConfig(t *testing.T) {
 	}
 }
 
+func TestLoadInsecureSkipVerify(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "host: http://host\ncas_host: http://cas\nusername: user\npassword: pass\nhttp:\n  insecure_skip_verify: true\n"
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if !c.HTTP.InsecureSkipVerify {
+		t.Fatal("expected insecure_skip_verify to be true")
+	}
+}
+
 func TestParseByteSize(t *testing.T) {
 	cases := []struct {
 		input    string

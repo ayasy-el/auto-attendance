@@ -269,3 +269,51 @@ func TestConcurrentReauthSingleflight(t *testing.T) {
 		t.Fatalf("expected token-renewed, got %q", c.Token())
 	}
 }
+
+func TestInsecureSkipVerifyTLS(t *testing.T) {
+	// Start an HTTPS test server with self-signed certificate
+	tsServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"nomor":1,"nama":"Tester"}`)
+	}))
+	defer tsServer.Close()
+
+	// 1. Without InsecureSkipVerify: request to untrusted self-signed TLS server must fail
+	strictCfg := config.Config{
+		Host:    tsServer.URL,
+		CASHost: tsServer.URL,
+		HTTP: config.HTTPConfig{
+			Timeout:            "5s",
+			InsecureSkipVerify: false,
+		},
+	}
+	strictClient, err := New(strictCfg)
+	if err != nil {
+		t.Fatalf("new strict client: %v", err)
+	}
+	_, _, err = strictClient.request(context.Background(), http.MethodGet, tsServer.URL, nil, "")
+	if err == nil {
+		t.Fatal("expected TLS verification error for untrusted self-signed certificate, got nil")
+	}
+
+	// 2. With InsecureSkipVerify: request to untrusted self-signed TLS server must succeed
+	insecureCfg := config.Config{
+		Host:    tsServer.URL,
+		CASHost: tsServer.URL,
+		HTTP: config.HTTPConfig{
+			Timeout:            "5s",
+			InsecureSkipVerify: true,
+		},
+	}
+	insecureClient, err := New(insecureCfg)
+	if err != nil {
+		t.Fatalf("new insecure client: %v", err)
+	}
+	resp, _, err := insecureClient.request(context.Background(), http.MethodGet, tsServer.URL, nil, "")
+	if err != nil {
+		t.Fatalf("expected request with InsecureSkipVerify to succeed, got: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
