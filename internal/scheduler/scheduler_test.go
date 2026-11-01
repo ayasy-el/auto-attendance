@@ -244,3 +244,39 @@ func TestScanCoursesStopsOnContextCancel(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", scanErr)
 	}
 }
+
+func TestScheduler_StatusDeadlockDuringActiveClass(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	now := time.Now().In(loc)
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+
+	s := &Scheduler{
+		loc: loc,
+		schedules: []ethol.ClassTime{
+			{Course: 10, Day: weekday, Start: "00:00", End: "23:59"},
+		},
+		courses: []ethol.Course{
+			{Number: 10, Schema: 1},
+		},
+		attended: map[string]time.Time{},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		status := s.Status()
+		if status.Mode != "inside-class" {
+			t.Errorf("expected inside-class, got %s", status.Mode)
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// success
+	case <-time.After(2 * time.Second):
+		t.Fatal("DEADLOCK DETECTED: Status() hung because of double mutex lock when class is active!")
+	}
+}

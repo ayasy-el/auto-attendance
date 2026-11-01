@@ -92,7 +92,7 @@ func (s *Scheduler) Status() SchedulerStatus {
 	return SchedulerStatus{
 		StartTime: s.startTime,
 		LastTick:  s.lastTick,
-		Mode:      s.mode(now),
+		Mode:      s.modeLocked(now),
 		IsPaused:  s.paused,
 		IsDryRun:  s.dryRun,
 		Courses:   len(s.courses),
@@ -587,22 +587,31 @@ func (s *Scheduler) setScanError(err error) {
 	s.mu.Unlock()
 }
 
+// mode reports the current scheduler mode. Callers must NOT hold s.mu.
 func (s *Scheduler) mode(now time.Time) string {
-	if s.inClass(now) && !s.hasAttendedActiveClass(now) {
+	if !s.inClass(now) {
+		return "outside-class"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.modeLocked(now)
+}
+
+// modeLocked is like mode but assumes the caller already holds s.mu.
+func (s *Scheduler) modeLocked(now time.Time) string {
+	if s.inClass(now) && !s.hasAttendedActiveClassLocked(now) {
 		return "inside-class"
 	}
 	return "outside-class"
 }
 
-func (s *Scheduler) hasAttendedActiveClass(now time.Time) bool {
+func (s *Scheduler) hasAttendedActiveClassLocked(now time.Time) bool {
 	activeCourses := s.classCourses(now)
 	if len(activeCourses) == 0 {
 		return false
 	}
 
 	date := now.Format("2006-01-02")
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, course := range s.courses {
 		if _, active := activeCourses[fmt.Sprintf("%d", course.Number)]; !active {
 			continue
