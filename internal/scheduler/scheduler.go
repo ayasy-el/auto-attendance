@@ -58,6 +58,7 @@ type Scheduler struct {
 	notifier        Notifier
 	startTime       time.Time
 	lastTick        time.Time
+	lastScanErr     error
 }
 
 func (s *Scheduler) SetNotifier(n Notifier) {
@@ -113,14 +114,31 @@ func (s *Scheduler) AttendedToday() []AttendedRecord {
 	return result
 }
 
+// TriggerCheck runs a manual check request (Telegram /check). It refreshes
+// the schedule and scans every enrolled course regardless of class hours or weekday,
+// updates tasks, evaluates reminders, and returns the first scan error.
 func (s *Scheduler) TriggerCheck(ctx context.Context) (int, error) {
 	if err := s.refresh(ctx); err != nil {
 		return 0, fmt.Errorf("gagal memuat jadwal: %w", err)
 	}
 	now := time.Now().In(s.loc)
-	log.Printf("trigger-check: mode=%s time=%s courses=%d", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
+	log.Printf("trigger-check: mode=%s time=%s courses=%d (manual)", s.mode(now), now.Format("2006-01-02 15:04:05 MST"), len(s.courses))
 	s.scanCourses(ctx, now)
-	return len(s.courses), nil
+	s.updateTasks(ctx)
+	s.checkTaskReminders(ctx)
+	return len(s.courses), s.LastScanError()
+}
+
+// TriggerCheckAt is an alias for TriggerCheck.
+func (s *Scheduler) TriggerCheckAt(ctx context.Context) (int, error) {
+	return s.TriggerCheck(ctx)
+}
+
+// LastScanError returns the first error encountered during the most recent scan cycle.
+func (s *Scheduler) LastScanError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastScanErr
 }
 
 func (s *Scheduler) SetDryRun(dryRun bool) {
@@ -481,9 +499,20 @@ func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 	isDryRun := s.dryRun
 	notifier := s.notifier
 	s.lastTick = now
+	s.lastScanErr = nil
+	courses := make([]ethol.Course, len(s.courses))
+	copy(courses, s.courses)
 	s.mu.Unlock()
 
-	for _, course := range s.courses {
+	for _, course := range courses {
+		// Stop scanning immediately if the context was cancelled (shutdown or manual abort)
+		if err := ctx.Err(); err != nil {
+			s.mu.Lock()
+			s.lastScanErr = err
+			s.mu.Unlock()
+			return
+		}
+
 		key := fmt.Sprintf("%d:%d:%s", course.Number, course.Schema, now.Format("2006-01-02"))
 		if isDryRun {
 			presenceKey, err := s.client.CheckPresence(ctx, course, s.student)
@@ -497,6 +526,7 @@ func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 					continue
 				}
 				log.Printf("[DRY-RUN] kuliah=%d nama=%q status=gagal error=%v", course.Number, course.Subject.Name, err)
+				s.setScanError(err)
 				continue
 			}
 			log.Printf("[DRY-RUN] kuliah=%d nama=%q presensi=aktif key=%s (submit dilewati)", course.Number, course.Subject.Name, presenceKey)
@@ -525,6 +555,7 @@ func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 				continue
 			}
 			log.Printf("kuliah=%d nama=%q presensi=gagal error=%v", course.Number, course.Subject.Name, err)
+			s.setScanError(err)
 			if notifier != nil {
 				notifier.NotifyPresenceFailed(ctx, course.Subject.Name, err)
 			}
@@ -546,6 +577,14 @@ func (s *Scheduler) scanCourses(ctx context.Context, now time.Time) {
 			notifier.NotifyPresenceSuccess(ctx, course.Subject.Name, course.LecturerName(), presenceKey)
 		}
 	}
+}
+
+func (s *Scheduler) setScanError(err error) {
+	s.mu.Lock()
+	if s.lastScanErr == nil {
+		s.lastScanErr = err
+	}
+	s.mu.Unlock()
 }
 
 func (s *Scheduler) mode(now time.Time) string {

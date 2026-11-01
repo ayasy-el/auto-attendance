@@ -71,3 +71,52 @@ func TestActivePeriodAutoDetectAndCache(t *testing.T) {
 		t.Fatalf("unexpected courses: %#v", courses)
 	}
 }
+
+func TestActivePeriodReauthenticatesOn401(t *testing.T) {
+	var configCalls atomic.Int32
+	var refreshCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/auth/refresh":
+			refreshCalls.Add(1)
+			http.SetCookie(w, &http.Cookie{Name: "token", Value: "token-renewed", Path: "/"})
+			w.WriteHeader(http.StatusOK)
+		case "/api/auth/config":
+			call := configCalls.Add(1)
+			if call == 1 {
+				w.WriteHeader(http.StatusUnauthorized)
+				fmt.Fprint(w, `{"sukses":false,"pesan":"Anda belum melakukan Login"}`)
+				return
+			}
+			if r.Header.Get("Authorization") != "Bearer token-renewed" {
+				t.Errorf("expected token-renewed on retry, got: %q", r.Header.Get("Authorization"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"tahun_aktif": 2026, "semester_aktif": 2}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := New(testConfig(server.URL))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	client.setToken("token-expired")
+	client.setRefreshToken("refresh-token")
+
+	y, s, err := client.ActivePeriod(context.Background())
+	if err != nil {
+		t.Fatalf("expected ActivePeriod to recover via re-auth, got error: %v", err)
+	}
+	if y != 2026 || s != 2 {
+		t.Fatalf("expected year 2026 and sem 2, got year=%d sem=%d", y, s)
+	}
+	if refreshCalls.Load() != 1 {
+		t.Fatalf("expected 1 refresh call, got %d", refreshCalls.Load())
+	}
+	if configCalls.Load() != 2 {
+		t.Fatalf("expected 2 config calls (1 failed + 1 retried), got %d", configCalls.Load())
+	}
+}

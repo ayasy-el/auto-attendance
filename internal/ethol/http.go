@@ -103,7 +103,9 @@ func (c *Client) ensureReauth(ctx context.Context, failedToken string) error {
 }
 
 func isAuthPath(path string) bool {
-	return strings.Contains(path, "/auth/")
+	return strings.Contains(path, "/auth/refresh") ||
+		strings.Contains(path, "/auth/validasi-token") ||
+		strings.Contains(path, "/auth/cas-callback")
 }
 
 func (c *Client) request(ctx context.Context, method, target string, body io.Reader, contentType string) (*http.Response, []byte, error) {

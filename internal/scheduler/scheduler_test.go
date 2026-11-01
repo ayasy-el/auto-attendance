@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -196,5 +197,50 @@ func TestScheduler_TaskRemindersDeduplication(t *testing.T) {
 	s.CheckTaskReminders(ctx)
 	if len(n.reminders) != 4 || n.reminders[3] != "Laporan Akhir:Kurang 1 Jam" {
 		t.Fatalf("expected fourth reminder 'Kurang 1 Jam', got: %v", n.reminders)
+	}
+}
+
+func TestScanCoursesCapturesError(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	cfg := config.Config{Host: "http://127.0.0.1:1", CASHost: "http://127.0.0.1:1"}
+	c, err := ethol.New(cfg)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	s := &Scheduler{
+		client:  c,
+		loc:     loc,
+		cfg:     cfg,
+		courses: []ethol.Course{{Number: 1, Schema: 4}},
+	}
+
+	now := time.Date(2026, 10, 20, 8, 0, 0, 0, loc)
+	s.scanCourses(context.Background(), now)
+
+	scanErr := s.LastScanError()
+	if scanErr == nil {
+		t.Fatal("expected network failure to be captured in lastScanErr")
+	}
+	if errors.Is(scanErr, ethol.ErrNoActivePresence) {
+		t.Fatal("expected a real failure, got ErrNoActivePresence")
+	}
+}
+
+func TestScanCoursesStopsOnContextCancel(t *testing.T) {
+	loc, _ := time.LoadLocation("Asia/Jakarta")
+	s := &Scheduler{
+		loc:     loc,
+		courses: []ethol.Course{{Number: 1, Schema: 4}, {Number: 2, Schema: 4}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	s.scanCourses(ctx, time.Date(2026, 10, 20, 8, 0, 0, 0, loc))
+
+	scanErr := s.LastScanError()
+	if !errors.Is(scanErr, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", scanErr)
 	}
 }

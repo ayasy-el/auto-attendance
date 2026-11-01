@@ -48,6 +48,8 @@ func TestIsAuthPath(t *testing.T) {
 		"/auth/refresh":            true,
 		"/api/auth/validasi-token": true,
 		"api/auth/refresh":         true,
+		"/api/auth/cas-callback":   true,
+		"/api/auth/config":         false,
 		"/api/auth":                false,
 		"/api/kuliah":              false,
 		"/api/authorize":           false,
